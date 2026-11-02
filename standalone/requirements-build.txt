@@ -1,0 +1,6 @@
+-r requirements.txt
+pyinstaller>=6,<7
+pefile>=2022.5.30
+pywin32-ctypes>=0.2.1
+cffi>=1.14
+pycparser>=2.20
