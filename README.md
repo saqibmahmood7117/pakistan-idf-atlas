@@ -28,7 +28,9 @@ engineering review.
 ## Reports and user manual
 
 The report is generated from the active data, source, model and method. Revision
-2.0 adds an assessment-at-a-glance panel, a 24-hour decision table with intensity,
+3.0 adds equation-by-equation definitions, constant provenance, current coefficient
+tables, a worked calculation, a source-aware step-by-step workflow and an acronym
+list. It builds on an assessment-at-a-glance panel, a 24-hour decision table with intensity,
 depth and annual exceedance probability, and improved A4 typography and tables.
 Download controls are available immediately above the report and at its end.
 

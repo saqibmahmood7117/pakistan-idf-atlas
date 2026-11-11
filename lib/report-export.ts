@@ -13,7 +13,7 @@ export const REPORT_LAYOUT_CSS = `
 @page{size:A4;margin:18mm 15mm;@top-left{content:"PAKISTAN IDF ATLAS / TECHNICAL ASSESSMENT";font:7pt Arial,sans-serif;color:#607681}@bottom-left{content:"Source, method and limitations form part of this assessment";font:7pt Arial,sans-serif;color:#607681}}
 .report{font-family:Arial,Helvetica,sans-serif}.report p,.report li{font-size:10.5pt;line-height:1.6}
 .report h1{letter-spacing:-.025em}.report h2{font-size:19pt}.report h3{font-size:13pt}
-.report td{text-align:left;overflow-wrap:anywhere}.report-idf-table td{text-align:right;font-variant-numeric:tabular-nums}
+.equation-explanation{padding:12px 0;border-bottom:1px solid #d9e3e5}.equation-explanation code{font:10pt/1.6 Georgia,serif;overflow-wrap:anywhere}.equation-help{margin-top:14px;color:#405966;font-size:12px;line-height:1.6}.equation-help summary{cursor:pointer;color:#0f766e;font-weight:700}.report td{text-align:left;overflow-wrap:anywhere}.report-idf-table td{text-align:right;font-variant-numeric:tabular-nums}
 .report tbody tr:nth-child(even){background:#f4f8fa}.report thead{background:#e8f2f3}
 .report thead th{color:#173b5c}.report-decision{padding:18px 22px;border:1px solid #b9d2d6;background:#f3f8fa;border-radius:8px;margin:20px 0}
 .report-decision h3{margin-top:0}.report-decision dl{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0}
@@ -22,6 +22,7 @@ export const REPORT_LAYOUT_CSS = `
 .report-download-panel h2{margin:0 0 8px}.report-download-panel p{color:#405966;line-height:1.5}.report-actions a{background:#0f766e;color:#fff;padding:9px 13px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
 @media(max-width:700px){.report-decision dl{grid-template-columns:1fr}.report-cover h1{font-size:25pt}}
 @media print{
+  .equation-explanation{break-inside:avoid}
   .print-header,.print-footer{display:none!important}
   .report-cover{box-sizing:border-box;height:245mm;min-height:0!important;padding:12mm!important;overflow:visible}
   .report-cover h1{font-size:24pt}.report-cover-subtitle{font-size:11pt!important}.document-control{margin-top:5mm}

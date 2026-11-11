@@ -1,4 +1,4 @@
-# Report revision 2.0 validation
+# Report revision 3.0 validation
 
 Browser validation used Chromium with a 1440 px desktop viewport and a 390 px
 mobile viewport. Both the initial empty state and a populated observed-data
@@ -16,7 +16,7 @@ Checks completed:
 - Self-contained HTML contains the synthetic label, decision summary and SVG.
 - A4 report cover and executive-summary pages inspected visually.
 - Mobile summary checked at 390 px; wide technical tables retain scrolling.
-- Manual printed to seven A4 pages; text extracted from every page.
+- Expanded manual printed to eight A4 pages; text extracted from every page.
 - Empty input clearly states that no fitted result is available.
 - Application type-check: `npx tsc --noEmit -p tsconfig.vercel.json`.
 - Lint and build completed successfully.
@@ -34,3 +34,11 @@ Generated samples and manuals are in `public/downloads/`. Regenerate their PDFs
 from Chromium with A4, print backgrounds and CSS page size enabled when updating
 the source HTML or report layout. A real assessment must be exported from the
 user's actual source data and analysis selection.
+
+Revision 3.0 checks also covered the active coefficient table, a worked example
+matching the direct calculator at 60 minutes, the expandable constant explanation,
+source-aware calculation steps, acronym navigation and exported equation text.
+The empty state was checked to ensure it does not invent coefficients or a worked
+example. DOCX XML was checked for equation explanations and acronym content, and
+its embedded chart was verified. PDF coefficient and acronym pages were inspected.
+The expanded sample is still synthetic and is not a local rainfall assessment.

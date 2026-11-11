@@ -43,6 +43,14 @@ export default function PowerIntensityCalculator({ rows }: { rows: ResultRow[] }
         <div><span>Rainfall depth</span><strong>{intensity === null ? "—" : `${(intensity * minutes / 60).toFixed(3)} mm`}</strong><small>i × t / 60</small></div>
         <div><span>Trendline R²</span><strong>{fit ? fit.rSquared.toFixed(4) : "—"}</strong><small>Log–log regression</small></div>
       </div>
+      <details className="equation-help">
+        <summary>What do the equation and constants mean?</summary>
+        <p><strong>i</strong> is rainfall intensity in mm/hour. <strong>t</strong> is your entered storm duration in minutes. <strong>T</strong> is the selected return period in years; each T has its own equation.</p>
+        <p><strong>c</strong> is the fitted scale coefficient{fit ? ` (${fit.coefficient.toPrecision(8)} for this curve)` : ""}. <strong>p</strong> is the dimensionless duration exponent{fit ? ` (${fit.exponent.toPrecision(8)})` : ""}. A negative p means intensity decreases as duration increases. c depends on the chosen units; it is not a universal rainfall constant.</p>
+        <p><strong>How c and p are obtained:</strong> the website takes the positive duration/intensity points for this return period, transforms both using natural logarithms, and fits a straight line: ln(i)=ln(c)+p ln(t). The slope gives p and the exponential of the intercept gives c. The coefficients summarize the active fitted IDF values, not the raw rainfall directly.</p>
+        <p><strong>Why R² can equal 1:</strong> when shorter durations were created with a pure scaling law, their power relationship is built into the calculation. R² describes the log-space trendline fit; it does not prove that derived rainfall is correct.</p>
+        <p><strong>Depth:</strong> P=i×t/60, where P is mm and 60 converts minutes to hours. The calculator uses full-precision coefficients. See the report’s Appendix A for coefficient tables, equation definitions and a worked example.</p>
+      </details>
       <p id="power-calculator-status" className="tc-caution" role="status">{message ?? `Calculated automatically for t = ${minutes} minutes using the full-precision coefficients of the ${period}-year chart equation. Supported range: ${min}–${max} minutes. This is a trendline estimate; check the fitted IDF table and duration assumptions before design use.`}</p>
     </section>
   );

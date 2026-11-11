@@ -224,6 +224,11 @@ test("renders development preview metadata", async () => {
   assert.match(html, developmentPreviewMeta);
   assert.match(html, /Professional technical report/);
   assert.match(html, /Executive summary/);
+  assert.match(html, /What the assessment tells you/);
+  assert.match(html, /From input to reported intensity: step by step/);
+  assert.match(html, /List of acronyms and abbreviations/);
+  assert.match(html, /Coefficients|No power coefficients/);
+  assert.match(html, /Euler–Mascheroni/);
   assert.match(html, /Literature and implementation alignment/);
   assert.match(html, /Infrastructure design-return-period guide/);
   assert.match(html, /Beyond 500 years \/ PMF/);
@@ -1200,5 +1205,9 @@ test("downloadable manual and sample report packages are present", async () => {
   const sample = await readFile(new URL('Pakistan-IDF-Atlas-Sample-Report.html', base), 'utf8');
   assert.match(sample, /SYNTHETIC DEMONSTRATION/);
   assert.match(sample, /Decision summary/);
+  assert.match(sample, /Worked example from the active curve/);
+  assert.match(sample, /List of acronyms and abbreviations/);
+  assert.match(sample, /Euler–Mascheroni/);
+  assert.match(sample, /full-precision/);
   assert.match(sample, /<svg/);
 });

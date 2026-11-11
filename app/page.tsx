@@ -1,4 +1,5 @@
 "use client";
+import { ReportAcronyms, ReportEquationGuide, ReportSteps } from "./components/report-explanation";
 import PowerIntensityCalculator from "./components/power-intensity-calculator";
 import { escapeReportText, reportFileStem, REPORT_LAYOUT_CSS } from "../lib/report-export";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9307,7 +9308,7 @@ export default function App() {
               </div>
               <div>
                 <dt>Revision</dt>
-                <dd>2.0 · generated from active analysis</dd>
+                <dd>3.0 · generated from active analysis</dd>
               </div>
               <div>
                 <dt>Precipitation source</dt>
@@ -9373,6 +9374,8 @@ export default function App() {
                 References and supporting calculations
               </a>
             </li>
+            <li><a href="#report-equations">Appendix A · Equations, constants and worked example</a></li>
+            <li><a href="#report-acronyms">Appendix E · List of acronyms</a></li>
           </ol>
         </nav>
 
@@ -9400,6 +9403,11 @@ export default function App() {
                         : "The selected annual covariate does not have at least 20 values matched to eligible annual maxima, so no nonstationary frequency result is issued."
                     : `The ${sourceTab === "online" ? onlineMetadata?.dataset : sourceTab === "cmip6" ? `${cmipMetadata?.dataset ?? "uploaded GCM record"} (${cmipModel}, ${cmipMetadata?.member ?? "member not reported"})` : `uploaded ${observedResolution} record`} produced ${activeStationarity.n} eligible 24-hour annual maxima. Using ${METHOD_LABEL[method]}, the estimated 24-hour intensity is ${selected10?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 10-year event and ${selected500?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 500-year event. The 250- and 500-year results extend far beyond the record and require independent review.`}
           </p>
+          <h3>What the assessment tells you</h3>
+          <p><strong>Question addressed.</strong> How much rainfall could occur over a specified duration at the selected annual exceedance probability? The analysis uses {sourceLabel}. The active method is {activeFrequencyMethodLabel}; {modelTab === "stationary" ? "its parameters are assumed constant over time." : `its result is conditional on ${covariateLabel}.`}</p>
+          <p><strong>How the answer was obtained.</strong> {sourceTab === "cmip6" && cmipImportedReady ? "The Atlas validated supplied model-specific 24-hour return levels and calculated the ensemble summary. It did not re-fit a daily record or infer sub-daily curves from the workbook." : shown.length ? `The workflow screened the precipitation record, retained eligible annual maxima, fitted the selected frequency model and converted estimated depths to intensity. ${idfPowerEquations.length ? "Separate power equations summarize the duration curves for use in the direct intensity calculator." : "No multi-duration power equation is available for the active selection."}` : "No fitted result is currently available. This document describes the selected setup and methods; its blank outputs must not be interpreted as zero rainfall."}</p>
+          <p><strong>Main finding in practical units.</strong> {selected100 ? `The selected 100-year, 24-hour estimate is ${selected100.intensityMmHr.toFixed(2)} mm/hour, equivalent to ${(selected100.intensityMmHr * 24).toFixed(2)} mm over 24 hours. This is an average intensity over the full duration, not a constant rate observed during a real storm. A 100-year level corresponds to 1% annual exceedance probability${modelTab === "nonstationary" ? " conditional on the selected year or covariate value" : " under the stationary model"}; it can be exceeded in consecutive years.` : "A 100-year, 24-hour value is not estimated for the active selection. Load sufficient eligible data and confirm model status before interpreting rainfall magnitudes."}</p>
+          <p><strong>How to use this report.</strong> Read the QC evidence before the results; use Appendix A to trace equations and constants, Appendix B for the full intensity matrix and Appendix E for acronyms. Sub-daily derived values and 250-/500-year extrapolations need particular scrutiny. Trendline R² is not a measure of design reliability. Adopt values only after checking source quality, applicable design criteria and independent hydrologic review.</p>
           <div className="report-decision">
             <h3>Assessment at a glance</h3>
             <dl>
@@ -9798,6 +9806,7 @@ export default function App() {
             commonly used in hydrology (Hosking, 1990; Katz et al., 2002).
             Equation definitions are reproduced in Appendix A.
           </p>
+          <ReportSteps imported={sourceTab === "cmip6" && cmipImportedReady} hourly={activeNativeHourly && modelTab === "stationary"} source={sourceLabel} />
           <div className="method-flow">
             <div>
               <span>01</span>
@@ -10974,143 +10983,8 @@ export default function App() {
         </section>
 
         <section className="report-section section-break">
-          <h2>Appendix A · Equations and parameter definitions</h2>
-          <div className="equation-grid">
-            <p>
-              <strong>GEV return level</strong>
-              <code>{"z_T(y)=μ(y)+(σ/ξ)[{−ln(1−1/T)}^(−ξ)−1]"}</code>
-              <small>
-                μ is location, σ is positive scale and ξ is shape; the Gumbel
-                limit applies as ξ approaches zero.
-              </small>
-            </p>
-            <p>
-              <strong>Fitted time-varying location</strong>
-              <code>{"μ(y)=μ₀+μ₁(y−ȳ)"}</code>
-              <small>
-                Year is centered before maximum-likelihood fitting; scale and
-                shape remain constant to limit over-parameterization.
-              </small>
-            </p>
-            <p>
-              <strong>Model comparison</strong>
-              <code>{"AICc=2k−2ln(L)+2k(k+1)/(n−k−1)"}</code>
-              <small>
-                Stationary and time-varying MLE fits use the same annual maxima;
-                |ΔAICc|≤2 is treated as inconclusive.
-              </small>
-            </p>
-            <p>
-              <strong>Gumbel EV1 return level</strong>
-              <code>{"z_T=μ−β ln{−ln(1−1/T)}"}</code>
-              <small>μ is location and β is scale.</small>
-            </p>
-            <p>
-              <strong>Log-Pearson III</strong>
-              <code>{"log₁₀z_T=μ_log+K(T,G)σ_log"}</code>
-              <small>K depends on return period T and log-space skew G.</small>
-            </p>
-            <p>
-              <strong>Two-parameter Lognormal</strong>
-              <code>{"z_T=exp[μ_ln+σ_ln Φ⁻¹(1−1/T)]"}</code>
-              <small>
-                μ_ln and σ_ln are the mean and sample standard deviation of
-                natural-log annual maxima.
-              </small>
-            </p>
-            <p>
-              <strong>Two-parameter Gamma</strong>
-              <code>{"z_T=θ G⁻¹(1−1/T;k)"}</code>
-              <small>
-                G⁻¹ is the unit-scale Gamma quantile; k=(x̄/s)² and θ=s²/x̄.
-              </small>
-            </p>
-            <p>
-              <strong>Two-parameter Weibull</strong>
-              <code>{"z_T=λ[ln(T)]^(1/k)"}</code>
-              <small>
-                Shape k is solved from the sample coefficient of variation; λ is
-                the scale parameter.
-              </small>
-            </p>
-            <p>
-              <strong>Sherman IDF representation</strong>
-              <code>{"i(t,T)=aT^m/(t+b)^n; b=0"}</code>
-              <small>
-                The equation shown on the active curve is fitted in log space
-                to the displayed return periods and durations. It is a compact
-                chart representation; the selected probability model remains
-                the source of the tabulated return levels.
-              </small>
-            </p>
-            <p>
-              <strong>Kirpich time of concentration</strong>
-              <code>{"t_c=0.0195L^0.77S^(−0.385)"}</code>
-              <small>
-                L is the longest flow path in metres, S is average flow-path
-                slope in m/m and t_c is in minutes. IDF intensity is then
-                evaluated at storm duration t=t_c.
-              </small>
-            </p>
-            <p>
-              <strong>Automatic longest-path slope</strong>
-              <code>{"S_L=(z_up−z_out)/L; S_10–85=(z_85−z_10)/(0.75L)"}</code>
-              <small>
-                MGHydro mode finds the hydraulically farthest connected path in
-                its upstream river network. Upload mode follows the selected
-                HEC-HMS/QGIS line. Elevations are sampled from Copernicus DEM
-                GLO-90; the selected slope is passed to Kirpich.
-              </small>
-            </p>
-            <p>
-              <strong>Design rainfall at t_c</strong>
-              <code>{"i_c=aT^m/(t_c+b)^n; P_c=i_c t_c/60"}</code>
-              <small>
-                i_c is in mm/hour and P_c is the rainfall depth in millimetres
-                over the time of concentration.
-              </small>
-            </p>
-            <p>
-              <strong>Daily-to-duration scaling</strong>
-              <code>{`P_t=P_24(t/24)^${exponent.toFixed(2)}`}</code>
-              <small>
-                Values for t&lt;24 hours are derived rather than observed.
-              </small>
-            </p>
-            <p>
-              <strong>Covariate-dependent GEV location</strong>
-              <code>{"μ(x)=μ₀+μ₁[(x−x̄)/sₓ]"}</code>
-              <small>
-                μ₁ is fitted by maximum likelihood; the reported physical-unit
-                coefficient is μ₁/sₓ with a moving-block bootstrap interval.
-              </small>
-            </p>
-          </div>
-          {sourceTab === "cmip6" && (
-            <div className="equation-grid">
-              <p>
-                <strong>CMIP6 model-specific retrieval</strong>
-                <code>{"q_T=F_GEV^{-1}(1−1/T | AMS(pr×86400))"}</code>
-                <small>
-                  Daily precipitation flux pr is retrieved from the selected
-                  NASA NEX-GDDP-CMIP6 files, converted from kg m⁻² s⁻¹ to
-                  mm/day, mapped with the reported model-calendar rule,
-                  screened for annual completeness, reduced to annual maxima,
-                  and fitted model-specifically. No screening multiplier enters
-                  the calculation.
-                </small>
-              </p>
-              <p>
-                <strong>Production ensemble summary</strong>
-                <code>{"Q_ensemble(T)=median_m{Q_m(T)}"}</code>
-                <small>
-                  Production results must instead fit each extracted GCM m
-                  independently, then summarize model-specific return levels
-                  without pooling model-years.
-                </small>
-              </p>
-            </div>
-          )}
+          <h2 id="report-equations">Appendix A · Equations and parameter definitions</h2>
+          <ReportEquationGuide rows={shown} exponent={exponent} globalFit={idfEquation} cmip={sourceTab === "cmip6"} />
         </section>
 
         <section className="report-section section-break">
@@ -11412,6 +11286,8 @@ export default function App() {
             </table>
           </div>
         </section>
+
+        <ReportAcronyms />
 
         <div className="report-actions">
           <button onClick={() => window.print()}>Print / Save PDF</button>
