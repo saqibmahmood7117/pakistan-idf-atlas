@@ -3,7 +3,14 @@ import type { ResultRow } from "./observed-idf";
 export type ShermanEquationFit = {
   a: number;
   m: number;
-  b: 0;
+  b: number;
+  offsetStatus: "fitted" | "zero-boundary" | "upper-boundary" | "not-identifiable";
+  calibrationBasis: "native-duration" | "derived-duration";
+  minDuration: number;
+  maxDuration: number;
+  minReturnPeriod: number;
+  maxReturnPeriod: number;
+  maxOffset: number;
   n: number;
   rSquared: number;
   sampleSize: number;
@@ -43,68 +50,90 @@ function solveThreeByThree(matrix: number[][], vector: number[]) {
 }
 
 /**
- * Fits the compact Sherman representation ln(i)=ln(a)+m ln(T)-n ln(t).
- * t is in minutes and i is in mm/hour. The active IDF rows remain the
- * authoritative fitted values; this equation is their chart representation.
+ * Sherman family i=a*T^m/(t+b)^n. Profile nonnegative b over [0,max(t)]
+ * and solve the three log-linear coefficients at each b. This bounded,
+ * log-space calibration is our implementation choice, not a reproduction of
+ * the 2025 IDF-GtzLo algorithm. Derived points cannot identify a physical b.
  */
 export function fitShermanEquation(rows: ResultRow[]): ShermanEquationFit | null {
-  const points = rows.filter(
-    (row) =>
-      row.durationMinutes > 0 &&
-      row.durationMinutes <= 1440 &&
-      row.returnPeriodYears > 1 &&
-      row.intensityMmHr > 0 &&
-      Number.isFinite(row.intensityMmHr),
-  );
-  if (
-    points.length < 6 ||
-    new Set(points.map((row) => row.durationMinutes)).size < 2 ||
-    new Set(points.map((row) => row.returnPeriodYears)).size < 2
-  )
-    return null;
-
-  const predictors = points.map((row) => [
-    1,
-    Math.log(row.returnPeriodYears),
-    -Math.log(row.durationMinutes),
-  ]);
+  const unique = new Map<string, ResultRow>();
+  for (const row of rows) {
+    if (!(row.durationMinutes > 0 && row.durationMinutes <= 1440 &&
+      row.returnPeriodYears > 1 && row.intensityMmHr > 0 &&
+      Number.isFinite(row.intensityMmHr) && Number.isFinite(row.returnPeriodYears))) continue;
+    const key = `${row.returnPeriodYears}:${row.durationMinutes}`;
+    if (!unique.has(key) || (unique.get(key)!.derived && !row.derived)) unique.set(key, row);
+  }
+  const all = [...unique.values()];
+  const native = all.filter((row) => row.derived === false);
+  const nativeDurations = new Set(native.map((row) => row.durationMinutes)).size;
+  const points = nativeDurations >= 2 ? native : all;
+  const durations = new Set(points.map((row) => row.durationMinutes));
+  const periods = new Set(points.map((row) => row.returnPeriodYears));
+  if (points.length < 6 || durations.size < 2 || periods.size < 2) return null;
+  const fitOffset = nativeDurations >= 3;
+  const maxOffset = Math.max(...durations);
   const response = points.map((row) => Math.log(row.intensityMmHr));
-  const matrix = Array.from({ length: 3 }, (_, row) =>
-    Array.from({ length: 3 }, (_, column) =>
-      predictors.reduce(
-        (sum, values) => sum + values[row] * values[column],
-        0,
-      ),
-    ),
-  );
-  const vector = Array.from({ length: 3 }, (_, row) =>
-    predictors.reduce(
-      (sum, values, index) => sum + values[row] * response[index],
-      0,
-    ),
-  );
-  const coefficients = solveThreeByThree(matrix, vector);
-  if (!coefficients) return null;
-  const [logA, m, n] = coefficients;
-  const predicted = predictors.map(
-    (values) => logA + m * values[1] + n * values[2],
-  );
   const average = response.reduce((sum, value) => sum + value, 0) / response.length;
-  const residual = response.reduce(
-    (sum, value, index) => sum + (value - predicted[index]) ** 2,
-    0,
-  );
-  const total = response.reduce((sum, value) => sum + (value - average) ** 2, 0);
-  const a = Math.exp(logA);
-  if (![a, m, n].every(Number.isFinite) || a <= 0 || n <= 0) return null;
+  const total = response.reduce((sum, value) => sum + (value-average)**2, 0);
+  function atOffset(b: number) {
+    const predictors = points.map((row) => [1, Math.log(row.returnPeriodYears), -Math.log(row.durationMinutes + b)]);
+    const matrix = Array.from({length:3}, (_, i) => Array.from({length:3}, (_, j) =>
+      predictors.reduce((sum, values) => sum + values[i]*values[j], 0)));
+    const vector = Array.from({length:3}, (_, i) => predictors.reduce((sum, values, j) => sum + values[i]*response[j], 0));
+    const coefficients = solveThreeByThree(matrix, vector);
+    if (!coefficients) return null;
+    const [logA, m, n] = coefficients;
+    const a = Math.exp(logA);
+    if (![a,m,n].every(Number.isFinite) || a <= 0 || m < 0 || n <= 0) return null;
+    const residual = response.reduce((sum, value, index) => {
+      const predicted = logA + m*predictors[index][1] + n*predictors[index][2];
+      return sum + (value-predicted)**2;
+    }, 0);
+    return {a,m,n,b,residual};
+  }
+  const zero = atOffset(0);
+  let best = zero;
+  if (fitOffset) {
+    // Coarse global profile, followed by a local golden-section refinement.
+    const grid = Array.from({length:65}, (_, index) => Math.expm1(Math.log1p(maxOffset)*index/64));
+    let bestIndex = 0;
+    for (let i=0; i<grid.length; i++) {
+      const fit = atOffset(grid[i]);
+      if (fit && (!best || fit.residual < best.residual)) { best = fit; bestIndex = i; }
+    }
+    let left = grid[Math.max(0,bestIndex-1)], right = grid[Math.min(grid.length-1,bestIndex+1)];
+    const ratio = (Math.sqrt(5)-1)/2;
+    for (let iteration=0;iteration<48;iteration++) {
+      const x1=right-ratio*(right-left), x2=left+ratio*(right-left);
+      const first=atOffset(x1), second=atOffset(x2);
+      if (first && (!best || first.residual < best.residual)) best=first;
+      if (second && (!best || second.residual < best.residual)) best=second;
+      if ((first?.residual ?? Infinity) < (second?.residual ?? Infinity)) right=x2; else left=x1;
+    }
+    // Do not turn numerical noise in a pure power law into evidence for b>0.
+    if (zero && best && zero.residual-best.residual <= 1e-10*Math.max(1,total)) best=zero;
+  }
+  if (!best) return null;
+  const offsetStatus = !fitOffset ? "not-identifiable" : best.b < 1e-6 ? "zero-boundary" : best.b >= maxOffset*(1-1e-6) ? "upper-boundary" : "fitted";
   return {
-    a,
-    m,
-    b: 0,
-    n,
-    rSquared: total > 0 ? Math.max(0, Math.min(1, 1 - residual / total)) : 1,
-    sampleSize: points.length,
+    a:best.a, m:best.m, b:best.b, n:best.n,
+    rSquared: total > 0 ? Math.max(0,Math.min(1,1-best.residual/total)) : 1,
+    sampleSize:points.length, offsetStatus,
+    calibrationBasis:nativeDurations >= 2 ? "native-duration" : "derived-duration",
+    minDuration:Math.min(...durations), maxDuration:Math.max(...durations),
+    minReturnPeriod:Math.min(...periods), maxReturnPeriod:Math.max(...periods), maxOffset,
   };
+}
+
+export function shermanCalibrationNote(fit: ShermanEquationFit | null) {
+  if (!fit) return "Sherman equation unavailable: multiple durations and return periods are required.";
+  const basis = fit.calibrationBasis === "native-duration" ? "Calibrated to independently supported duration return levels." : "Descriptive fit to derived duration values; not an independent short-duration calibration.";
+  const status = fit.offsetStatus === "not-identifiable" ? "The offset b is not identifiable from at least three independently supported durations; b=0 is retained only as a labelled simplification."
+    : fit.offsetStatus === "zero-boundary" ? "The fitted offset reaches b=0; do not extrapolate toward zero duration."
+    : fit.offsetStatus === "upper-boundary" ? "The offset reaches the search upper bound; review parameter identifiability and calibration range."
+    : `The duration offset b=${fit.b.toFixed(3)} minutes is calibrated, not a universal constant.`;
+  return `${basis} ${status} Valid evaluation range: ${fit.minDuration}–${fit.maxDuration} minutes and ${fit.minReturnPeriod}–${fit.maxReturnPeriod} years. Local gauge validation remains required.`;
 }
 
 /** Fits the chart form ln(i)=ln(c)+p ln(t) for one return period. */
@@ -166,7 +195,9 @@ export function shermanIntensity(
     !(durationMinutes > 0) ||
     !(returnPeriodYears > 1) ||
     !Number.isFinite(durationMinutes) ||
-    !Number.isFinite(returnPeriodYears)
+    !Number.isFinite(returnPeriodYears) ||
+    durationMinutes < fit.minDuration || durationMinutes > fit.maxDuration ||
+    returnPeriodYears < fit.minReturnPeriod || returnPeriodYears > fit.maxReturnPeriod
   )
     return null;
   const intensity =
@@ -194,7 +225,7 @@ export function kirpichTimeOfConcentrationMinutes(
 
 export function formatShermanEquation(fit: ShermanEquationFit | null) {
   if (!fit) return "Equation unavailable — at least two durations are required";
-  return `i(t,T)=${fit.a.toFixed(3)}T^${fit.m.toFixed(3)}/(t+0)^${fit.n.toFixed(3)}`;
+  return `i(t,T)=${fit.a.toFixed(3)}T^${fit.m.toFixed(3)}/(t+${fit.b.toFixed(3)})^${fit.n.toFixed(3)}`;
 }
 
 /** Evaluate a per-period chart trendline only within its fitted duration range. */

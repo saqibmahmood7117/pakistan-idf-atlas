@@ -42,3 +42,20 @@ The empty state was checked to ensure it does not invent coefficients or a worke
 example. DOCX XML was checked for equation explanations and acronym content, and
 its embedded chart was verified. PDF coefficient and acronym pages were inspected.
 The expanded sample is still synthetic and is not a local rainfall assessment.
+
+## Literature calibration update
+
+- Sherman duration offset is profiled over a disclosed nonnegative range when
+  at least three independently supported native durations are present.
+- Regression tests recover a known four-parameter synthetic surface, exclude
+  derived points from native calibration, flag non-identifiable/zero/upper-bound
+  offsets, and reject duration/return-period extrapolation.
+- Browser checks cover daily-derived fallback, native hourly calibration,
+  sub-hour rejection for the hourly calibration, direct calculator alternatives,
+  Excel `(t+b)` formulas, range metadata, and responsive layout.
+- Paper abstracts/metadata were checked through Consensus; its full-text tool
+  was unavailable. This implements the Sherman family with a disclosed numerical
+  procedure, not a claimed reproduction of the 2025 IDF-GtzLo algorithm.
+- The source references appear in the on-page report and Excel workbook.
+- GitHub checkout test results: 51 passed and the same two existing failures
+  (missing offline installer assets and stale preview-meta expectation).

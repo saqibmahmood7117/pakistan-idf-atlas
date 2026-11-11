@@ -28,7 +28,7 @@ engineering review.
 ## Reports and user manual
 
 The report is generated from the active data, source, model and method. Revision
-3.0 adds equation-by-equation definitions, constant provenance, current coefficient
+4.0 adds equation-by-equation definitions, constant provenance, current coefficient
 tables, a worked calculation, a source-aware step-by-step workflow and an acronym
 list. It builds on an assessment-at-a-glance panel, a 24-hour decision table with intensity,
 depth and annual exceedance probability, and improved A4 typography and tables.
@@ -43,8 +43,9 @@ fewer than two supported durations has no duration equation.
 
 Use **Enter duration t → calculate intensity i** above the chart to enter any
 duration in minutes within the fitted curve’s range. Select a return period;
-intensity (mm/hour) and rainfall depth (mm) update immediately from that
-return period’s full-precision power equation. Invalid or unsupported durations
+intensity (mm/hour) and rainfall depth (mm) update immediately. The default
+Sherman mode uses `i=a*T^m/(t+b)^n`; the selectable Excel-style power mode uses
+that return period’s full-precision power equation. Invalid or unsupported durations
 do not produce an estimate.
 
 - **Print / Save PDF** opens the browser print dialog. Select A4, 100% scale and
@@ -69,6 +70,24 @@ The report module is `lib/report-export.ts`; browser layout and content are in
 `app/page.tsx`. The static manual HTML is the editable source for its PDF.
 Whenever the manual or report styling changes, reprint the manual/sample in
 Chromium and inspect the A4 pages and DOCX chart before committing the artifacts.
+
+## Literature-supported Sherman calibration
+
+The equation family `i=a*T^m/(t+b)^n` is supported by the published literature
+listed in `lib/idf-literature.ts` and in the generated report. No coefficients
+are borrowed from another region. This implementation is not the 2025 paper’s
+IDF-GtzLo algorithm, and literature support does not establish local validation.
+
+The Atlas fits a, m and n in log space for each candidate nonnegative b and
+profiles b over `[0, maximum calibrated duration]`. This search bound and objective
+are disclosed implementation choices. At least three independently supported
+native durations are required to fit b. Derived short-duration rows are excluded
+when multiple native durations are available. With insufficient native durations,
+b=0 remains an explicitly labelled descriptive simplification; it must not be
+presented as an independently calibrated offset. Zero and upper-bound solutions
+are identified for review. Calculators reject evaluation outside the calibration
+ranges in duration and return period. Log-space R² measures representation fit,
+not rainfall accuracy. Independently validate local gauge extremes before design.
 
 ## Data sources
 

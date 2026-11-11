@@ -1,5 +1,6 @@
 "use client";
 import { ReportAcronyms, ReportEquationGuide, ReportSteps } from "./components/report-explanation";
+import { IDF_LITERATURE } from "../lib/idf-literature";
 import PowerIntensityCalculator from "./components/power-intensity-calculator";
 import { escapeReportText, reportFileStem, REPORT_LAYOUT_CSS } from "../lib/report-export";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -106,6 +107,7 @@ import {
   formatShermanEquation,
   kirpichTimeOfConcentrationMinutes,
   shermanIntensity,
+  shermanCalibrationNote,
   type ShermanEquationFit,
 } from "../lib/idf-design";
 import {
@@ -1036,6 +1038,7 @@ async function extractEra5TemperatureInBrowser(
 }
 
 const refs = [
+  ...IDF_LITERATURE.map((paper) => [`${paper.label}. ${paper.title}`, paper.url] as [string, string]),
   [
     "World Meteorological Organization. (n.d.). Climate data: quality control, management and homogenization guidance.",
     "https://community.wmo.int/site/knowledge-hub/programmes-and-initiatives/climate-services/climate-data",
@@ -3638,8 +3641,8 @@ export default function App() {
         : kirpichConcentrationValue,
     concentrationWithinIdfRange = Boolean(
       timeOfConcentrationMinutes != null &&
-        timeOfConcentrationMinutes >= 5 &&
-        timeOfConcentrationMinutes <= 1440,
+        timeOfConcentrationMinutes >= (idfEquation?.minDuration ?? 5) &&
+        timeOfConcentrationMinutes <= (idfEquation?.maxDuration ?? 1440),
     ),
     designIntensity = concentrationWithinIdfRange
       ? shermanIntensity(
@@ -6327,9 +6330,15 @@ export default function App() {
         ["Return-period exponent, m", idfEquation?.m ?? 0, "—", "Fitted from the active IDF curves"],
         ["Duration exponent, n", idfEquation?.n ?? 0, "—", "Fitted from the active IDF curves"],
         ["Selected-curve coefficient, C_T", selectedCurveCoefficient, "—", "C_T=a×T^m"],
-        ["Design intensity, i(tc,T)", designIntensity ?? 0, "mm/hour", "i=C_T×tc^-n"],
+        ["Design intensity, i(tc,T)", designIntensity ?? 0, "mm/hour", "i=C_T/(tc+b)^n; evaluated only inside calibration range"],
         ["Design rainfall depth over tc", designRainfallDepth ?? 0, "mm", "P=i×tc/60"],
-        ["Global equation log-space R²", idfEquation?.rSquared ?? 0, "—", "Goodness of fit for i(t,T)=a×T^m×t^-n"],
+        ["Global equation log-space R²", idfEquation?.rSquared ?? 0, "—", "Goodness of fit for i(t,T)=a×T^m/(t+b)^n"],
+        ["Duration offset, b", idfEquation?.b ?? 0, "minutes", idfEquation?.offsetStatus ?? "unavailable"],
+        ["Minimum calibrated duration", idfEquation?.minDuration ?? 0, "minutes", "Do not extrapolate below this duration"],
+        ["Maximum calibrated duration", idfEquation?.maxDuration ?? 0, "minutes", "Do not extrapolate above this duration"],
+        ["Minimum calibrated return period", idfEquation?.minReturnPeriod ?? 0, "years", "Evaluation bound"],
+        ["Maximum calibrated return period", idfEquation?.maxReturnPeriod ?? 0, "years", "Evaluation bound"],
+        ["Calibration basis", idfEquation?.calibrationBasis ?? "unavailable", "—", shermanCalibrationNote(idfEquation)],
       ]);
     designSheet.B8 = {
       t: "n",
@@ -6345,7 +6354,7 @@ export default function App() {
     };
     designSheet.B16 = {
       t: "n",
-      f: 'IF(AND(B10>0,B15>0),B15*POWER(B10,-B14),"")',
+      f: 'IF(AND(B10>0,B15>0,B10>=B20,B10<=B21,B11>=B22,B11<=B23),B15/POWER(B10+B19,B14),"")',
       v: designIntensity ?? 0,
     };
     designSheet.B17 = {
@@ -6408,6 +6417,10 @@ export default function App() {
           design_return_period_years: designReturnPeriod,
           idf_chart_equation: formatShermanEquation(idfEquation),
           equation_r_squared: idfEquation?.rSquared ?? "not fitted",
+          duration_offset_minutes: idfEquation?.b ?? "not fitted",
+          offset_calibration_status: idfEquation?.offsetStatus ?? "not fitted",
+          equation_calibration_basis: idfEquation?.calibrationBasis ?? "not fitted",
+          equation_calibration_note: shermanCalibrationNote(idfEquation),
           design_intensity_mm_per_hour:
             designIntensity ?? "not calculated",
           design_depth_over_tc_mm:
@@ -8508,7 +8521,7 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <PowerIntensityCalculator rows={shown} />
+            <PowerIntensityCalculator rows={shown} globalFit={idfEquation} />
             {shown.some((r) => r.durationMinutes <= 1440) ? (
               <>
                 <IdfChart
@@ -8887,12 +8900,13 @@ export default function App() {
                       <small>The amber line and point identify the active result.</small>
                     </p>
                   </div>
+                  <p className="tc-caution">{shermanCalibrationNote(idfEquation)}</p>
                   <p className="tc-caution">
                     <strong>Important:</strong> An IDF curve does not determine
                     t<sub>c</sub> by itself. It supplies rainfall intensity for a
                     storm duration set equal to the independently estimated
                     t<sub>c</sub>. The calculator reports intensity only for the
-                    displayed 5–1440 minute range.
+                    calibrated range: {idfEquation ? `${idfEquation.minDuration}–${idfEquation.maxDuration} minutes` : "unavailable"}.
                     {timeOfConcentrationMinutes != null &&
                       !concentrationWithinIdfRange &&
                       " The current time of concentration is outside that range."}
@@ -9308,7 +9322,7 @@ export default function App() {
               </div>
               <div>
                 <dt>Revision</dt>
-                <dd>3.0 · generated from active analysis</dd>
+                <dd>4.0 · generated from active analysis</dd>
               </div>
               <div>
                 <dt>Precipitation source</dt>
@@ -9405,7 +9419,7 @@ export default function App() {
           </p>
           <h3>What the assessment tells you</h3>
           <p><strong>Question addressed.</strong> How much rainfall could occur over a specified duration at the selected annual exceedance probability? The analysis uses {sourceLabel}. The active method is {activeFrequencyMethodLabel}; {modelTab === "stationary" ? "its parameters are assumed constant over time." : `its result is conditional on ${covariateLabel}.`}</p>
-          <p><strong>How the answer was obtained.</strong> {sourceTab === "cmip6" && cmipImportedReady ? "The Atlas validated supplied model-specific 24-hour return levels and calculated the ensemble summary. It did not re-fit a daily record or infer sub-daily curves from the workbook." : shown.length ? `The workflow screened the precipitation record, retained eligible annual maxima, fitted the selected frequency model and converted estimated depths to intensity. ${idfPowerEquations.length ? "Separate power equations summarize the duration curves for use in the direct intensity calculator." : "No multi-duration power equation is available for the active selection."}` : "No fitted result is currently available. This document describes the selected setup and methods; its blank outputs must not be interpreted as zero rainfall."}</p>
+          <p><strong>How the answer was obtained.</strong> {sourceTab === "cmip6" && cmipImportedReady ? "The Atlas validated supplied model-specific 24-hour return levels and calculated the ensemble summary. It did not re-fit a daily record or infer sub-daily curves from the workbook." : shown.length ? `The workflow screened the precipitation record, retained eligible annual maxima, fitted the selected frequency model and converted estimated depths to intensity. ${idfPowerEquations.length ? "A Sherman relationship summarizes the IDF surface for the default duration calculator; separately selectable power equations reproduce Excel-style trendlines." : "No multi-duration power equation is available for the active selection."}` : "No fitted result is currently available. This document describes the selected setup and methods; its blank outputs must not be interpreted as zero rainfall."}</p>
           <p><strong>Main finding in practical units.</strong> {selected100 ? `The selected 100-year, 24-hour estimate is ${selected100.intensityMmHr.toFixed(2)} mm/hour, equivalent to ${(selected100.intensityMmHr * 24).toFixed(2)} mm over 24 hours. This is an average intensity over the full duration, not a constant rate observed during a real storm. A 100-year level corresponds to 1% annual exceedance probability${modelTab === "nonstationary" ? " conditional on the selected year or covariate value" : " under the stationary model"}; it can be exceeded in consecutive years.` : "A 100-year, 24-hour value is not estimated for the active selection. Load sufficient eligible data and confirm model status before interpreting rainfall magnitudes."}</p>
           <p><strong>How to use this report.</strong> Read the QC evidence before the results; use Appendix A to trace equations and constants, Appendix B for the full intensity matrix and Appendix E for acronyms. Sub-daily derived values and 250-/500-year extrapolations need particular scrutiny. Trendline R² is not a measure of design reliability. Adopt values only after checking source quality, applicable design criteria and independent hydrologic review.</p>
           <div className="report-decision">
@@ -10259,10 +10273,7 @@ export default function App() {
             </li>
             <li>
               <strong>Sherman representation.</strong> Regress GEV return levels
-              into a constrained power law in return period and duration with
-              b=0. The Sherman curve is therefore a compact representation of
-              the GEV-based IDF surface, not an independent probability
-              distribution.
+              into the Sherman family i=aTᵐ/(t+b)ⁿ. The active chart surface uses nonnegative offset calibration only when at least three independently supported durations are available. Otherwise b=0 is retained as an explicitly labelled descriptive simplification. The equation summarizes return levels; it is not an independent probability distribution. See Appendix A for calibration details and literature references.
             </li>
             <li>
               <strong>Duration and intensity conversion.</strong> For daily
@@ -10479,7 +10490,7 @@ export default function App() {
                 : `The project-supplied time of concentration is ${timeOfConcentrationMinutes.toFixed(2)} minutes.`}{" "}
               {designIntensity != null && designRainfallDepth != null
                 ? `For T=${designReturnPeriod} years, the displayed IDF equation gives i=${designIntensity.toFixed(2)} mm/hour and P=${designRainfallDepth.toFixed(2)} mm over t₍c₎.`
-                : "The value is outside the supported 5–1440 minute range or a multi-duration chart equation is unavailable."}
+                : "The duration is outside the calibrated range or a multi-duration chart equation is unavailable."}
             </p>
           )}
           {selected24h.length > 0 && (
