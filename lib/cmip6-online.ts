@@ -42,6 +42,7 @@ export type Cmip6ExtractionMetadata = {
   returnedEnd: string;
   acceptedRecords: number;
   extractedGridCells: number;
+  nearestCellFallback?: boolean;
   requestedLatitude?: number;
   requestedLongitude?: number;
   returnedLatitude?: number;

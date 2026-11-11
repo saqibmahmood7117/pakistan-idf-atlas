@@ -1,5 +1,6 @@
 "use client";
 import { ReportAcronyms, ReportEquationGuide, ReportSteps } from "./components/report-explanation";
+import { cmipBiasSpatialKey, matchCmipHistoricalBaseline, districtBiasReference, type CmipBiasSpatialAudit } from "../lib/cmip6-bias-context";
 import { IDF_LITERATURE } from "../lib/idf-literature";
 import PowerIntensityCalculator from "./components/power-intensity-calculator";
 import { escapeReportText, reportFileStem, REPORT_LAYOUT_CSS } from "../lib/report-export";
@@ -150,6 +151,7 @@ type Cmip6AnnualResponse = {
 type StoredCmipModel = ModelReturnLevels & {
   selectionKey: string;
   correctionReference: string;
+  spatialAudit?: CmipBiasSpatialAudit;
 };
 const cmipEnsembleSelectionKey = ({
   scenario,
@@ -160,6 +162,7 @@ const cmipEnsembleSelectionKey = ({
   model,
   method,
   durationBasis,
+  spatialKey,
 }: {
   scenario: Cmip6Scenario;
   period: Cmip6Period;
@@ -169,12 +172,12 @@ const cmipEnsembleSelectionKey = ({
   model: "stationary" | "nonstationary";
   method: Method;
   durationBasis: "observed-duration-ratios" | "24-hour-only";
+  spatialKey?: string;
 }) =>
   [
     scenario,
     period,
-    latitude.toFixed(5),
-    longitude.toFixed(5),
+    spatialKey ?? `point|${latitude.toFixed(5)}|${longitude.toFixed(5)}`,
     reference,
     model,
     method,
@@ -3014,6 +3017,7 @@ export default function App() {
       "Retrieve the matching 1985–2014 historical GCM grid cell. The atlas uses gauge observations when available, or can retrieve ERA5 as a clearly labelled fallback reference.",
     ),
     [cmipHistoricalLoadedKey, setCmipHistoricalLoadedKey] = useState(""),
+    [cmipBiasAudit, setCmipBiasAudit] = useState<CmipBiasSpatialAudit | null>(null),
     [cmipEnsembleModels, setCmipEnsembleModels] =
       useState<StoredCmipModel[]>([]),
     [cmipImportedWorkbook, setCmipImportedWorkbook] =
@@ -3228,6 +3232,48 @@ export default function App() {
         : annualMaxima(onlineDailyQc.records, 1),
     [onlineResolution, onlineHourlyQc.records, onlineDailyQc.records],
   );
+  const matchedBoundaryName = useMemo(
+    () =>
+      boundaryLevel === "district"
+        ? (geo?.features
+            .map(boundaryName)
+            .find(
+              (n) =>
+                normalizeBoundaryName(n) === normalizeBoundaryName(district),
+            ) ?? null)
+        : mapSelection,
+    [geo, district, boundaryLevel, mapSelection],
+  );
+  const matchedBoundaryFeature = useMemo(
+    () =>
+      boundaryLevel === "district"
+        ? (geo?.features.find(
+            (f) =>
+              normalizeBoundaryName(boundaryName(f)) ===
+              normalizeBoundaryName(district),
+          ) ?? null)
+        : null,
+    [geo, district, boundaryLevel],
+  );
+  const districtRepresentativePoint = useMemo(
+    () =>
+      matchedBoundaryFeature
+        ? representativePointForGeometry(matchedBoundaryFeature.geometry)
+        : null,
+    [matchedBoundaryFeature],
+  );
+  const matchedBoundaryIdentity = useMemo(() => {
+    if (!matchedBoundaryFeature) return null;
+    const properties = matchedBoundaryFeature.properties;
+    return {
+      name: boundaryName(matchedBoundaryFeature),
+      code: String(properties.adm2_pcode ?? properties.ADM2_PCODE ?? "not reported"),
+      source: "OCHA COD-AB Pakistan ADM2",
+      version: String(properties.cod_version ?? "V_01"),
+      validOn: String(properties.valid_on ?? "2022-09-09"),
+    };
+  }, [matchedBoundaryFeature]);
+  const currentCmipSpatialKey = cmipBiasSpatialKey({mode:spatialMode,latitude:coordinateLat,longitude:coordinateLon,district,geometry:matchedBoundaryFeature?.geometry,boundaryCode:matchedBoundaryIdentity?.code,boundaryVersion:matchedBoundaryIdentity?.version});
   const cmipMidpoint = CMIP6_PERIODS[cmipPeriod].midpoint,
     cmipModel =
       cmipSelectionMode === "ensemble"
@@ -3239,6 +3285,7 @@ export default function App() {
       cmipModelLabel,
       cmipScenario,
       cmipPeriod,
+      currentCmipSpatialKey,
       spatialMode,
       district,
       spatialMode === "point" ? stationLat : "district",
@@ -3270,12 +3317,13 @@ export default function App() {
     ),
     currentCmipHistoricalKey = [
       selectedCmipModel,
+      cmipMember,
       cmipBiasReference,
-      stationLat,
-      stationLon,
+      currentCmipSpatialKey,
       raw.length,
       hourlyRaw.length,
     ].join("|"),
+    activeCmipBiasAudit = cmipHistoricalLoadedKey === currentCmipHistoricalKey ? cmipBiasAudit : null,
     cmipHistoricalQc = assess(
       cmipHistoricalLoadedKey === currentCmipHistoricalKey
         ? cmipHistoricalRaw
@@ -3294,22 +3342,23 @@ export default function App() {
     }),
     gaugeHistoricalQc = assess(gaugeHistoricalDaily),
     useEra5BiasReference =
-      cmipBiasReference === "era5" ||
+      spatialMode === "district" || cmipBiasReference === "era5" ||
       (cmipBiasReference === "auto" && gaugeHistoricalQc.eligibleYears < 20),
     cmipReferenceDaily = useEra5BiasReference
       ? cmipEra5ReferenceQc.records
       : gaugeHistoricalQc.records,
     cmipReferenceQc = assess(cmipReferenceDaily),
-    cmipReferenceRows = calculate(cmipReferenceDaily, exponent),
-    cmipReferenceAms = annualMaxima(cmipReferenceDaily, 1),
+    cmipMatchedBaseline = matchCmipHistoricalBaseline(cmipHistoricalQc.records, cmipReferenceDaily),
+    cmipReferenceRows = calculate(cmipMatchedBaseline.reference, exponent),
+    cmipReferenceAms = annualMaxima(cmipMatchedBaseline.reference, 1),
     cmipReferenceLabel = useEra5BiasReference
-      ? "ERA5 reanalysis"
+      ? spatialMode === "district" ? "ERA5 district spatial series" : "ERA5 reanalysis"
       : "observed gauge",
-    stationaryCmipHistorical = calculate(cmipHistoricalQc.records, exponent),
+    stationaryCmipHistorical = calculate(cmipMatchedBaseline.model, exponent),
     cmipQdm = monthlyMultiplicativeQdm(
       cmipQc.records,
-      cmipHistoricalQc.records,
-      cmipReferenceDaily,
+      cmipMatchedBaseline.model,
+      cmipMatchedBaseline.reference,
     ),
     cmipCorrectedQc = assess(cmipQdm.records),
     stationaryCmipCorrected = calculate(cmipCorrectedQc.records, exponent),
@@ -3320,6 +3369,10 @@ export default function App() {
     ),
     cmipQdmReady =
       cmipQdm.summaries.length === 12 &&
+      cmipMatchedBaseline.years.length >= 20 &&
+      (spatialMode !== "district" || (activeCmipBiasAudit?.mode === "district" && activeCmipBiasAudit.spatialKey === currentCmipSpatialKey)) &&
+      (!cmipMetadata || !activeCmipBiasAudit || activeCmipBiasAudit.member === cmipMetadata.member) &&
+      (spatialMode !== "district" || !cmipMetadata?.nearestCellFallback) &&
       cmipHistoricalQc.eligibleYears >= 20 &&
       cmipReferenceQc.eligibleYears >= 20 &&
       cmipCorrectedQc.eligibleYears >= 8,
@@ -3334,11 +3387,11 @@ export default function App() {
           (row) => row.durationMinutes === 1440,
         )
       : [],
-    cmipDurationRatios = observedResolution === "hourly"
+    cmipDurationRatios = spatialMode === "point" && observedResolution === "hourly"
       ? observedDurationRatios(stationaryObserved, method)
       : new Map<string, number>(),
     cmipValidatedRows = cmipCorrected24h.length
-      ? observedResolution === "hourly"
+      ? spatialMode === "point" && observedResolution === "hourly"
         ? applyObservedDurationRatios(cmipCorrected24h, cmipDurationRatios)
         : cmipCorrected24h
       : [],
@@ -3365,6 +3418,7 @@ export default function App() {
       };
     }),
     currentCmipEnsembleKey = cmipEnsembleSelectionKey({
+      spatialKey: currentCmipSpatialKey,
       scenario: cmipScenario,
       period: cmipPeriod,
       latitude: coordinateLat,
@@ -3373,7 +3427,7 @@ export default function App() {
       model: modelTab,
       method,
       durationBasis:
-        observedResolution === "hourly" && hourlyRaw.length
+        spatialMode === "point" && observedResolution === "hourly" && hourlyRaw.length
           ? "observed-duration-ratios"
           : "24-hour-only",
     }),
@@ -3409,7 +3463,7 @@ export default function App() {
     ),
     cmipPlotLocation =
       spatialMode === "district"
-        ? `${district} district · NASA grid-cell mean`
+        ? `${district} district · NASA grid-cell mean · ${cmipQdmReady ? "monthly QDM corrected" : "raw GCM"}`
         : coordinateValid
           ? `Point/grid-cell at ${coordinateLat.toFixed(5)}, ${coordinateLon.toFixed(5)} · ${cmipQdmReady ? "monthly QDM corrected" : "raw GCM"}`
           : "Point/grid-cell coordinates";
@@ -3703,47 +3757,6 @@ export default function App() {
               .replace(/^-|-$/g, "") || "GAUGE"
           }-${modelTab === "stationary" ? "STA" : "NSTA"}`
         : `PK-IDF-${district.toUpperCase().replaceAll(" ", "-")}-${sourceTab === "cmip6" ? "CMIP6" : "ONLINE"}-${modelTab === "stationary" ? "STA" : "NSTA"}`;
-  const matchedBoundaryName = useMemo(
-    () =>
-      boundaryLevel === "district"
-        ? (geo?.features
-            .map(boundaryName)
-            .find(
-              (n) =>
-                normalizeBoundaryName(n) === normalizeBoundaryName(district),
-            ) ?? null)
-        : mapSelection,
-    [geo, district, boundaryLevel, mapSelection],
-  );
-  const matchedBoundaryFeature = useMemo(
-    () =>
-      boundaryLevel === "district"
-        ? (geo?.features.find(
-            (f) =>
-              normalizeBoundaryName(boundaryName(f)) ===
-              normalizeBoundaryName(district),
-          ) ?? null)
-        : null,
-    [geo, district, boundaryLevel],
-  );
-  const districtRepresentativePoint = useMemo(
-    () =>
-      matchedBoundaryFeature
-        ? representativePointForGeometry(matchedBoundaryFeature.geometry)
-        : null,
-    [matchedBoundaryFeature],
-  );
-  const matchedBoundaryIdentity = useMemo(() => {
-    if (!matchedBoundaryFeature) return null;
-    const properties = matchedBoundaryFeature.properties;
-    return {
-      name: boundaryName(matchedBoundaryFeature),
-      code: String(properties.adm2_pcode ?? properties.ADM2_PCODE ?? "not reported"),
-      source: "OCHA COD-AB Pakistan ADM2",
-      version: String(properties.cod_version ?? "V_01"),
-      validOn: String(properties.valid_on ?? "2022-09-09"),
-    };
-  }, [matchedBoundaryFeature]);
   const selectedBoundaryExtent = useMemo(() => {
     if (!matchedBoundaryFeature) return null;
     const points: number[][] = [];
@@ -4624,6 +4637,7 @@ export default function App() {
         returnedEnd: records.at(-1)!.date,
         acceptedRecords: records.length,
         extractedGridCells: maximumGridCells,
+        nearestCellFallback: usedNearestCellFallback,
         requestedLatitude:
           spatialMode === "point" ? coordinateLat : undefined,
         requestedLongitude:
@@ -4684,12 +4698,28 @@ export default function App() {
     }
   }
   async function retrieveHistoricalCmipForBiasCorrection() {
-    if (spatialMode !== "point" || !cmipCoordinateReady) {
-      setCmipHistoricalMessage("Historical validation requires Point/grid-cell extraction at coordinates inside Pakistan.");
+    if (cmipSelectionMode !== "individual") {
+      setCmipHistoricalMessage("Select an individual GCM before retrieving its matching historical series.");
       return;
     }
-    const gaugeAvailable = gaugeHistoricalQc.eligibleYears >= 20;
-    const shouldUseEra5 = cmipBiasReference === "era5" || (cmipBiasReference === "auto" && !gaugeAvailable);
+    if (spatialMode === "point" && !cmipCoordinateReady) {
+      setCmipHistoricalMessage("Point correction requires coordinates inside Pakistan.");
+      return;
+    }
+    if (spatialMode === "district" && !matchedBoundaryFeature) {
+      setCmipHistoricalMessage("Load the verified selected district polygon before district bias correction.");
+      return;
+    }
+    let shouldUseEra5: boolean;
+    try { shouldUseEra5 = districtBiasReference(spatialMode, cmipBiasReference, gaugeHistoricalQc.eligibleYears) === "era5"; }
+    catch (error) { setCmipHistoricalMessage(error instanceof Error ? error.message : "Invalid spatial reference."); return; }
+    const spatialRequest = {
+      mode: spatialMode,
+      latitude: spatialMode === "point" ? coordinateLat : undefined,
+      longitude: spatialMode === "point" ? coordinateLon : undefined,
+      geometry: spatialMode === "district" ? matchedBoundaryFeature?.geometry : undefined,
+    };
+    const gaugeAvailable = spatialMode === "point" && gaugeHistoricalQc.eligibleYears >= 20;
     if (cmipBiasReference === "gauge" && !gaugeAvailable) {
       setCmipHistoricalMessage("Observed gauge only is selected, but fewer than 20 complete gauge years overlap 1985–2014. Upload an adequate gauge series or choose Automatic / ERA5 reanalysis.");
       return;
@@ -4698,7 +4728,8 @@ export default function App() {
     setCmipHistoricalRaw([]);
     if (shouldUseEra5) setCmipEra5ReferenceRaw([]);
     setCmipHistoricalLoadedKey("");
-    setCmipHistoricalMessage(`Retrieving ${shouldUseEra5 ? "ERA5 reference and " : ""}${selectedCmipModel} historical 1985–2014 at the project grid cell…`);
+    setCmipBiasAudit(null);
+    setCmipHistoricalMessage(`Retrieving ${shouldUseEra5 ? "ERA5 reference and " : ""}${selectedCmipModel} historical 1985–2014 for ${spatialMode === "district" ? `${district} district polygon` : "the project grid cell"}…`);
     const post = async (payload: Record<string, unknown>) => {
       const response = await fetch("/api/cmip6-precipitation", {
         method: "POST",
@@ -4712,15 +4743,20 @@ export default function App() {
     };
     try {
       let referenceCount = observedAms.length;
+      let referenceRecords = gaugeHistoricalQc.records;
+      let referenceMetadata: OnlineExtractionMetadata | null = null;
       if (shouldUseEra5) {
         const era5Request: DirectEra5Request = {
           source: "era5",
           resolution: "daily",
-          mode: "point",
+          ...spatialRequest,
+          districtName: spatialMode === "district" ? matchedBoundaryIdentity?.name : undefined,
+          districtCode: spatialMode === "district" ? matchedBoundaryIdentity?.code : undefined,
+          boundarySource: spatialMode === "district" ? matchedBoundaryIdentity?.source : undefined,
+          boundaryVersion: spatialMode === "district" ? matchedBoundaryIdentity?.version : undefined,
+          boundaryValidOn: spatialMode === "district" ? matchedBoundaryIdentity?.validOn : undefined,
           start: "1985-01-01",
           end: "2014-12-31",
-          latitude: coordinateLat,
-          longitude: coordinateLon,
         };
         let era5 = await extractEra5InBrowser(
           era5Request,
@@ -4758,24 +4794,49 @@ export default function App() {
             `ERA5 supplied ${era5Qc.records.length.toLocaleString()} valid daily values and ${era5Qc.eligibleYears} eligible annual maxima for 1985–2014. Bias correction requires at least 20. Excluded years (<90% complete): ${excluded.length ? excluded.join(", ") : "none identified"}.`,
           );
         }
+        referenceRecords = era5Records;
+        referenceMetadata = era5.status === "complete" ? era5.metadata : null;
         setCmipEra5ReferenceRaw(era5Records);
         referenceCount = era5Qc.eligibleYears;
       }
       const catalogue = await post({ action: "catalogue", model: selectedCmipModel, scenario: "historical", member: cmipMember, startYear: 1985, endYear: 2014 }) as unknown as Cmip6Catalogue;
+      if (cmipMetadata && cmipDataReady && catalogue.selectedMember !== cmipMetadata.member) throw new Error("Historical and future GCM realizations differ; retrieve matching model members before correction.");
       const groups: DailyRecord[][] = [];
-      for (let offset = 0; offset < catalogue.files.length; offset += 5) {
-        const batch = catalogue.files.slice(offset, offset + 5);
+      let historicalGridCells = 0;
+      const batchSize = spatialMode === "district" ? 2 : 5;
+      for (let offset = 0; offset < catalogue.files.length; offset += batchSize) {
+        const batch = catalogue.files.slice(offset, offset + batchSize);
         const responses = await Promise.all(batch.map(file => post({
           action: "year", model: selectedCmipModel, scenario: "historical", member: catalogue.selectedMember,
-          year: file.year, fileName: file.fileName, mode: "point", latitude: coordinateLat, longitude: coordinateLon,
+          year: file.year, fileName: file.fileName, ...spatialRequest,
         }) as Promise<Record<string, unknown>>));
-        for (const response of responses as unknown as Cmip6AnnualResponse[]) groups.push(response.records);
+        for (const response of responses as unknown as Cmip6AnnualResponse[]) {
+          if (spatialMode === "district" && response.nearestCellFallback) throw new Error("The historical subset fell back to a single nearest grid cell. It cannot be used as a district spatial bias-correction series.");
+          historicalGridCells = Math.max(historicalGridCells, response.extractedGridCells);
+          groups.push(response.records);
+        }
         setCmipHistoricalMessage(`Historical validation: retrieved ${Math.min(offset + batch.length, 30)} of 30 years…`);
       }
       const records = mergeDailyRecords(groups);
+      const matched = matchCmipHistoricalBaseline(records, referenceRecords);
+      if (matched.years.length < 20) throw new Error(`Only ${matched.years.length} common eligible baseline years remain after matching the historical GCM and reference. At least 20 common years within 1985–2014 are required.`);
+      const audit: CmipBiasSpatialAudit = {
+        mode:spatialMode,spatialKey:currentCmipSpatialKey,
+        districtName:spatialMode === "district" ? matchedBoundaryIdentity?.name ?? district : undefined,
+        boundaryCode:spatialMode === "district" ? matchedBoundaryIdentity?.code : undefined,
+        boundarySource:spatialMode === "district" ? matchedBoundaryIdentity?.source : undefined,
+        boundaryVersion:spatialMode === "district" ? matchedBoundaryIdentity?.version : undefined,
+        member:catalogue.selectedMember,historicalGridCells,
+        historicalSpatialMethod:spatialMode === "district" ? "District daily spatial mean over selected polygon using the same NASA cell-selection and latitude-area weighting rule as the future series" : "NASA NCSS grid-as-point extraction",
+        referenceSpatialMethod:referenceMetadata?.spatialMethod ?? "Uploaded point gauge",
+        referenceGridCells:referenceMetadata?.extractedGridCells,
+        baseline:"1985–2014",commonEligibleYears:matched.years,
+        correctionOrder:spatialMode === "district" ? "Aggregate historical/future GCM and ERA5 separately over the same district polygon, then apply monthly QDM to the district daily series. Not cell-wise bias correction." : "Monthly QDM of point/grid-cell daily series",
+      };
+      setCmipBiasAudit(audit);
       setCmipHistoricalRaw(records);
       setCmipHistoricalLoadedKey(currentCmipHistoricalKey);
-      setCmipHistoricalMessage(`Historical comparison ready: ${annualMaxima(records, 1).length} GCM annual maxima versus ${referenceCount} ${shouldUseEra5 ? "ERA5 reanalysis" : "nearby-gauge"} annual maxima. Monthly multiplicative QDM is now applied to every future daily value before annual maxima and the 24-hour GEV are fitted. ${shouldUseEra5 ? "This is reanalysis-corrected, not gauge-corrected." : ""}`);
+      setCmipHistoricalMessage(`Historical comparison ready for ${spatialMode === "district" ? `${district} district spatial series` : "the project grid cell"}: ${matched.years.length} common eligible years; ${referenceCount} reference annual maxima. ${audit.correctionOrder} Correction is applied when a matching future series is available. ${shouldUseEra5 ? "This is reanalysis-corrected, not gauge-corrected." : ""}`);
     } catch (error) {
       setCmipHistoricalMessage(error instanceof Error ? error.message : "Historical GCM retrieval failed.");
     } finally {
@@ -5219,6 +5280,7 @@ export default function App() {
         rows: cmipValidatedRows,
         selectionKey: currentCmipEnsembleKey,
         correctionReference: cmipReferenceLabel,
+        spatialAudit: activeCmipBiasAudit ?? undefined,
       },
     ]);
   }
@@ -5487,6 +5549,11 @@ export default function App() {
           bias_correction_reference: cmipQdmReady
             ? cmipReferenceLabel
             : "not yet applied",
+          bias_spatial_mode: activeCmipBiasAudit?.mode ?? "not calibrated",
+          bias_spatial_key: activeCmipBiasAudit?.spatialKey ?? "not calibrated",
+          bias_common_years: cmipMatchedBaseline.years.join(", "),
+          bias_correction_order: activeCmipBiasAudit?.correctionOrder ?? "not calibrated",
+          bias_reference_spatial_method: activeCmipBiasAudit?.referenceSpatialMethod ?? "not calibrated",
           qdm_wet_day_threshold_mm: cmipQdmReady
             ? cmipQdm.wetDayThresholdMm
             : "not applicable",
@@ -6171,6 +6238,10 @@ export default function App() {
         "Imported Validation",
       );
     }
+    if (sourceTab === "cmip6" && cmipActiveEnsembleModels.some(item => item.spatialAudit))
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cmipActiveEnsembleModels.flatMap(item => item.spatialAudit ? [{model:item.model,...item.spatialAudit,commonEligibleYears:item.spatialAudit.commonEligibleYears.join(", ")}] : [])), "Ensemble Spatial Audit");
+    if (sourceTab === "cmip6" && activeCmipBiasAudit)
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{ ...activeCmipBiasAudit, commonEligibleYears: activeCmipBiasAudit.commonEligibleYears.join(", "), reference: cmipReferenceLabel, correctionApplied: cmipQdmReady }]), "Bias Spatial Audit");
     if (sourceTab === "cmip6" && cmipBiasComparison.length)
       XLSX.utils.book_append_sheet(
         wb,
@@ -7538,30 +7609,32 @@ export default function App() {
               </div>
             </div>
             <section className="gcm-validation-card" aria-label="Reference validation and multi-model uncertainty">
-              <div><span>Pakistan-wide engineering workflow</span><h3>Daily QDM bias correction and multi-model uncertainty</h3><p>Choose any verified point inside Pakistan. The atlas compares the 1985–2014 historical GCM grid cell with a nearby gauge when at least 20 overlapping years are available, or with explicitly labelled ERA5 reanalysis otherwise. Monthly multiplicative quantile delta mapping corrects every future daily value before annual maxima and the 24-hour GEV are fitted. Shorter durations still require observed hourly ratios.</p></div>
+              <div><span>Pakistan-wide engineering workflow</span><h3>Daily QDM bias correction and multi-model uncertainty</h3><p>Choose a verified district polygon or point inside Pakistan. District mode aggregates historical GCM, future GCM and ERA5 separately over the same polygon before correcting the district daily series. ERA5 uses a documented approximate representative-cell district mean; this is not cell-wise correction or gauge validation. Point mode can use an adequate nearby gauge or ERA5. At least 20 common eligible baseline years within 1985–2014 are required. District correction supports 24-hour results only; a single point gauge does not establish district-wide sub-daily ratios.</p></div>
               <label>
                 Bias-correction reference
                 <select value={cmipBiasReference} onChange={event => { setCmipBiasReference(event.target.value as Cmip6BiasReference); setCmipHistoricalRaw([]); setCmipEra5ReferenceRaw([]); setCmipHistoricalLoadedKey(""); setCmipHistoricalMessage("Reference changed. Retrieve the historical GCM and selected reference again before applying correction."); }} disabled={cmipBusy}>
                   <option value="auto">Automatic · gauge first, ERA5 if unavailable</option>
-                  <option value="gauge">Observed gauge only</option>
+                  <option value="gauge" disabled={spatialMode === "district"}>Observed gauge only{spatialMode === "district" ? " · point mode only" : ""}</option>
                   <option value="era5">ERA5 reanalysis</option>
                 </select>
               </label>
               <div className="gcm-validation-actions">
-                <button type="button" onClick={retrieveHistoricalCmipForBiasCorrection} disabled={cmipBusy || spatialMode !== "point" || !cmipCoordinateReady || (cmipBiasReference === "gauge" && gaugeHistoricalQc.eligibleYears < 20)}>Retrieve historical GCM & bias-correction reference</button>
+                <button type="button" onClick={retrieveHistoricalCmipForBiasCorrection} disabled={cmipBusy || cmipSelectionMode !== "individual" || (spatialMode === "point" ? !cmipCoordinateReady : !matchedBoundaryFeature) || (cmipBiasReference === "gauge" && (spatialMode === "district" || gaugeHistoricalQc.eligibleYears < 20))}>Retrieve historical GCM & bias-correction reference</button>
                 <button type="button" disabled={!cmipValidatedRows.length || cmipSelectionMode !== "individual" || !cmipQdmReady} onClick={storeCorrectedCmipModel}>Add QDM-corrected model to ensemble</button>
                 <button type="button" disabled={cmipBusy || cmipRecommendedStored >= PAKISTAN_IDF_ENSEMBLE_MODELS.length} onClick={selectNextPakistanEnsembleModel}>Select next recommended model</button>
                 <button type="button" disabled={!cmipActiveEnsembleModels.length} onClick={() => setCmipEnsembleModels(previous => previous.filter(item => item.selectionKey !== currentCmipEnsembleKey))}>Clear this location ensemble</button>
               </div>
               <div className="gcm-evidence-grid">
-                <div><span>Pakistan location</span><strong>{spatialMode === "point" && cmipCoordinateReady ? `Verified project grid cell · ${coordinateLat.toFixed(5)}, ${coordinateLon.toFixed(5)}` : spatialMode === "point" && coordinateValid ? "Outside verified Pakistan boundaries" : "Switch to Point/grid-cell"}</strong></div>
-                <div><span>Historical overlap</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.historicalPeriod : `${cmipHistoricalQc.eligibleYears || 0} GCM years · ${cmipReferenceAms.length} ${cmipReferenceLabel} years`}</strong></div>
+                <div><span>Pakistan location</span><strong>{spatialMode === "district" ? matchedBoundaryFeature ? `${district} district spatial series · ${matchedBoundaryIdentity?.code}` : "Load the selected district polygon" : cmipCoordinateReady ? `Verified project grid cell · ${coordinateLat.toFixed(5)}, ${coordinateLon.toFixed(5)}` : "Point coordinates inside Pakistan required"}</strong></div>
+                <div><span>Historical overlap</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.historicalPeriod : `${cmipMatchedBaseline.years.length} common years · ${cmipHistoricalQc.eligibleYears || 0} GCM years · ${cmipReferenceAms.length} ${cmipReferenceLabel} years`}</strong></div>
                 <div><span>Daily bias correction</span><strong>{cmipImportedReady ? `Precomputed and validated in workbook · ${cmipReferenceLabel}` : cmipQdmReady ? `12 monthly QDM groups · ${useEra5BiasReference ? "reanalysis-corrected" : "gauge-corrected"}` : `Pending historical + ${cmipReferenceLabel} comparison`}</strong></div>
-                <div><span>Sub-daily basis</span><strong>{observedResolution === "hourly" && hourlyRaw.length ? "Observed hourly duration ratios" : "Unavailable · 24-hour result only"}</strong></div>
+                <div><span>Sub-daily basis</span><strong>{spatialMode === "point" && observedResolution === "hourly" && hourlyRaw.length ? "Observed hourly duration ratios" : "24-hour result only · no district hourly reference"}</strong></div>
                 <div><span>Active ensemble</span><strong>{cmipActiveEnsembleModels.length} models stored · {cmipRecommendedStored}/10 recommended · minimum 3</strong></div>
                 <div><span>Record status</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.validationStatus : projectionEvidenceStatus(cmipStationarity.n, 500)}</strong></div>
               </div>
               <p className="gcm-validation-message">{cmipHistoricalMessage}</p>
+              {activeCmipBiasAudit && <p className="gcm-validation-message">{activeCmipBiasAudit.correctionOrder} Reference: {activeCmipBiasAudit.referenceSpatialMethod}. Common baseline years: {activeCmipBiasAudit.commonEligibleYears.join(", ")}. Boundary: {activeCmipBiasAudit.boundaryCode ?? "point"} · {activeCmipBiasAudit.boundaryVersion ?? "not applicable"}.</p>}
+              {spatialMode === "district" && cmipBiasReference === "gauge" && <p className="tc-caution">Select Automatic or ERA5. The uploaded point gauge is not a district spatial reference.</p>}
               {cmipImportedReady && cmipImportedWorkbook && (
                 <details className="qdm-monthly-audit" open>
                   <summary>
@@ -7737,7 +7810,7 @@ export default function App() {
                 record, extracts corrected annual maxima and fits the selected
                 probability distributions. The fitted 24-hour IDF uses the
                 corrected series. Durations below 24 hours remain unavailable
-                unless observed hourly duration ratios are loaded.
+                unless point-mode observed hourly duration ratios are loaded; district correction remains 24-hour only.
               </p>
             </details>
           </article>
@@ -7761,7 +7834,7 @@ export default function App() {
           <div className="spatial-mode-buttons">
             <button
               className={spatialMode === "district" ? "active" : ""}
-              onClick={() => setSpatialMode("district")}
+              onClick={() => { setSpatialMode("district"); if (cmipBiasReference === "gauge") setCmipBiasReference("era5"); }}
               disabled={manualObservedLoaded || onlineBusy || cmipBusy}
               aria-disabled={manualObservedLoaded}
             >
@@ -9833,6 +9906,7 @@ export default function App() {
             commonly used in hydrology (Hosking, 1990; Katz et al., 2002).
             Equation definitions are reproduced in Appendix A.
           </p>
+          {sourceTab === "cmip6" && <div className="report-decision"><h3>Bias-correction spatial support</h3><p>Selected mode: {spatialMode === "district" ? `${district} district spatial series` : "point/grid-cell series"}. {activeCmipBiasAudit ? activeCmipBiasAudit.correctionOrder : "No matching historical spatial calibration has been completed for this selection."}</p>{activeCmipBiasAudit && <><p>Historical GCM: {activeCmipBiasAudit.historicalSpatialMethod}; {activeCmipBiasAudit.historicalGridCells} cells. Reference: {activeCmipBiasAudit.referenceSpatialMethod}; {activeCmipBiasAudit.referenceGridCells ?? "not applicable"} cells.</p><p>Boundary: {activeCmipBiasAudit.boundarySource ?? "point"} · {activeCmipBiasAudit.boundaryCode ?? "not applicable"} · {activeCmipBiasAudit.boundaryVersion ?? "not applicable"}. Common eligible years: {activeCmipBiasAudit.commonEligibleYears.join(", ")}. Model member: {activeCmipBiasAudit.member}.</p></>}<p>District QDM corrects the aggregated daily series, not every grid cell independently. ERA5 district reference sampling is approximate and does not establish gauge accuracy. Point gauge duration ratios are not applied to district-average rainfall.</p></div>}
           <ReportSteps imported={sourceTab === "cmip6" && cmipImportedReady} hourly={activeNativeHourly && modelTab === "stationary"} source={sourceLabel} />
           <div className="method-flow">
             <div>
@@ -10343,7 +10417,7 @@ export default function App() {
                 ? `The imported workbook supplies model-specific, bias-corrected 24-hour GEV return levels for ${cmipImportedWorkbook.locationName}, ${CMIP6_SCENARIOS[cmipScenario].label} and ${cmipPeriod}. The Atlas independently checks coordinates, scenario/period labels, depth-to-intensity conversion, monotonicity, shared return periods and ensemble reconciliation, then reports the model median with P10–P90 spread. It does not infer daily precipitation, sampling-confidence limits or sub-daily curves from the summary values.`
               : cmipDataReady
                 ? cmipQdmReady
-                  ? `Every future daily precipitation value for ${cmipModel}, ${CMIP6_SCENARIOS[cmipScenario].label}, ${cmipMetadata?.member ?? "member not reported"} and ${cmipPeriod} is bias-corrected by calendar-month multiplicative QDM using the 1985–2014 historical GCM and ${cmipReferenceLabel}. Annual maxima and the active ${modelTab} 24-hour GEV are fitted after correction. ${useEra5BiasReference ? "This is reanalysis-corrected, not gauge-corrected." : "This is gauge-corrected."} Sub-daily values are shown only when observed hourly duration ratios are available.`
+                  ? `Every future daily precipitation value for ${cmipModel}, ${CMIP6_SCENARIOS[cmipScenario].label}, ${cmipMetadata?.member ?? "member not reported"} and ${cmipPeriod} is bias-corrected by calendar-month multiplicative QDM using the 1985–2014 historical GCM and ${cmipReferenceLabel}. Annual maxima and the active ${modelTab} 24-hour GEV are fitted after correction. ${useEra5BiasReference ? "This is reanalysis-corrected, not gauge-corrected." : "This is gauge-corrected."} District-corrected values are limited to 24 hours. Point-corrected sub-daily values require observed hourly duration ratios.`
                   : `The fitted values use the retrieved NASA NEX-GDDP-CMIP6 daily precipitation for ${cmipModel}, ${CMIP6_SCENARIOS[cmipScenario].label}, ${cmipMetadata?.member ?? "member not reported"} and ${cmipPeriod}. Bias correction has not yet been applied; retrieve the historical GCM and selected reference before design use.`
                 : `NASA NEX-GDDP-CMIP6 is selected for ${cmipModel}, ${CMIP6_SCENARIOS[cmipScenario].label} and ${cmipPeriod}, but no daily precipitation has been retrieved or fitted.`
                 : onlineReady && onlineResolution === "hourly"

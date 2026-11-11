@@ -71,3 +71,22 @@ the short-record/model-upgrade caveat are retained in reports and spreadsheets.
 District means are explicitly approximate request-mesh samples, not native-grid
 area integrals. Unit tests verify model selection, millimetre units, null handling,
 date bounds and district metadata. IFS shares Open-Meteo quotas with ERA5.
+
+## District spatial QDM update
+
+- District historical GCM requests now use the selected polygon; ERA5 reference
+  requests use district mode and retain their approximate representative sampling.
+- Automatic district correction uses ERA5; a point gauge is not relabelled as a
+  district reference and point hourly ratios are not applied to district output.
+- At least 20 common eligible years within 1985–2014 are required. QDM is applied
+  after district aggregation and before corrected annual-maxima fitting.
+- Calibration identities include spatial mode, boundary code/version and polygon
+  content; changing district/geometry or realization invalidates stale correction.
+  Stored ensembles keep their corresponding spatial audit.
+- Unit tests check spatial identities, reference selection, matched year coverage
+  and the district-series QDM calculation.
+- A Chromium end-to-end test with controlled provider responses verified district
+  polygon requests for all 30 historical years, ERA5 district sampling, corrected
+  24-hour results, Bias Spatial Audit export, invalidation after district change and
+  continued point-mode correction.
+  This test does not establish live NASA availability or local gauge accuracy.

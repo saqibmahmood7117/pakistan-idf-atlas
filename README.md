@@ -109,6 +109,27 @@ request mesh to nearest model cells and is explicitly approximate.
 No OpenAI API key is required. Provider requests use public data services and
 the imported files remain in the browser workflow.
 
+## District spatial bias correction
+
+Select **CMIP6 projections**, an individual model and **District spatial series**.
+Load the verified polygon, retrieve the future GCM series, then choose **Automatic**
+or **ERA5 reanalysis** and click **Retrieve historical GCM & bias-correction
+reference**. The 1985–2014 historical GCM uses the same polygon/cell-weighting
+rule as the future extraction. ERA5 uses the documented representative-cell
+approximation over that polygon. At least 20 common eligible baseline years are
+required. Monthly QDM is applied after spatial aggregation and before extracting
+corrected annual maxima; this is a district-series correction, not cell-wise QDM.
+
+A single uploaded gauge is not treated as a district reference. District correction
+supports 24-hour return levels only; point gauge duration ratios are not extended
+to district rainfall. Metadata and the **Bias Spatial Audit** workbook sheet retain
+the spatial mode, polygon identity/version, model member, grid-cell counts,
+reference sampling method and matched baseline years. Changing district, polygon,
+mode or model member invalidates the corresponding calibration. Point and district
+ensembles are kept separate. A nearest-cell fallback cannot be passed off as a
+historical district-average series. ERA5 correction remains reanalysis-corrected,
+not gauge-validated.
+
 ## Bias-corrected CMIP6 workbook format
 
 Use **Import bias-corrected results workbook** in the CMIP6 workspace. The
