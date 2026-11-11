@@ -133,11 +133,23 @@ not gauge-validated.
 When only 24-hour results are available, the chart plots **intensity against
 return period** and the calculator provides a fixed-duration result lookup.
 It does not display an empty duration axis or attempt to fit a duration equation.
-For district QDM results, **Show derived sub-daily curves (assumed scaling)**
-optionally applies `P(t)=P24*(t/1440)^alpha` after daily correction. It is off by
-default; the exponent, derived status and distinction from independently corrected
-sub-daily rainfall are recorded in the interface and exports. These assumptions
-must be checked against local duration evidence before design use.
+Daily CMIP6 results remain 24-hour only. Assumed temporal scaling is removed.
+
+### Native independently corrected sub-daily projections
+Select **Native 3-hour projections**. The separate ACCESS-CM2 r1i1p1f1
+CMIP6 `3hr pr` archive is retrieved through ESGF/CEDA subsets. Historical
+1985–2014, selected SSP future data, and hourly ERA5 reference are aggregated
+independently to 3, 6, 12 and 24 hours. Each duration uses its own annual maxima
+and GEV L-moment fits: `Qcorr(T,d)=Qref,h(T,d)*Qmodel,f(T,d)/Qmodel,h(T,d)`.
+This is return-level quantile-change correction, not monthly daily QDM or a
+corrected continuous rainfall series. At least 20 common baseline years and
+8 future years, each with 90% coverage, are required. Bootstrap intervals use
+100 paired-baseline/separate-future year resamples. No 1-hour or shorter
+projection is inferred. District model rainfall uses polygon/cell overlap;
+ERA5 district sampling is approximate. The coarse 1.25° × 1.875° model and
+reanalysis reference do not establish gauge accuracy. Download audit, values,
+source URLs and standalone HTML/PDF from this workflow. Failed retrieval stops
+without daily-data substitution.
 
 ## Bias-corrected CMIP6 workbook format
 

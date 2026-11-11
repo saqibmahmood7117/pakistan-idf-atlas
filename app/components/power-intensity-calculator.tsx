@@ -3,9 +3,9 @@ import { useState } from "react";
 import { fitPowerEquation, powerIntensityAtDuration, formatShermanEquation, shermanIntensity, shermanCalibrationNote, type ShermanEquationFit } from "../../lib/idf-design";
 import { PERIODS, type ResultRow } from "../../lib/observed-idf";
 
-export default function PowerIntensityCalculator({ rows, globalFit }: { rows: ResultRow[]; globalFit: ShermanEquationFit | null }) {
-  const [equationMode, setEquationMode] = useState<"sherman" | "power">("sherman");
-  const [duration, setDuration] = useState("60");
+export default function PowerIntensityCalculator({ rows, globalFit, defaultDurationMinutes = 60, defaultEquationMode = "sherman" }: { rows: ResultRow[]; globalFit: ShermanEquationFit | null; defaultDurationMinutes?: number; defaultEquationMode?: "sherman" | "power" }) {
+  const [equationMode, setEquationMode] = useState<"sherman" | "power">(defaultEquationMode);
+  const [duration, setDuration] = useState(String(defaultDurationMinutes));
   const [period, setPeriod] = useState(10);
   const fit = fitPowerEquation(rows, period);
   const validRows = rows.filter((row) => row.returnPeriodYears === period &&
@@ -34,7 +34,7 @@ export default function PowerIntensityCalculator({ rows, globalFit }: { rows: Re
       <div className="tc-calculator-head"><div><span>Supported duration result</span><h3 id="power-calculator-title">{supportedDuration===1440?"24-hour":`${supportedDuration}-minute`} rainfall lookup</h3></div><code>Tabulated fitted return level</code></div>
       <div className="tc-input-grid"><label>Supported duration t (minutes)<input type="number" value={supportedDuration} readOnly /></label><label>Return period T (years)<select aria-label="Return period T (years)" value={selected.returnPeriodYears} onChange={event=>setPeriod(Number(event.target.value))}>{options.map(value=><option key={value} value={value}>{value}-year</option>)}</select></label></div>
       <div className="tc-result-grid" aria-live="polite"><div><span>Rainfall intensity i</span><strong data-testid="power-intensity">{selected.intensityMmHr.toFixed(3)} mm/hour</strong><small>{selected.returnPeriodYears}-year tabulated estimate</small></div><div><span>Rainfall depth</span><strong>{selected.depthMm.toFixed(3)} mm</strong><small>Over {supportedDuration} minutes</small></div></div>
-      <p className="tc-caution">This analysis contains only one storm duration. The chart compares its return periods. A duration equation cannot be fitted from one duration. For a complete IDF family, use supported duration-specific data or explicitly enable the labelled assumed sub-daily scaling option when available.</p>
+      <p className="tc-caution">This analysis contains only one storm duration. The chart compares its return periods. A duration equation cannot be fitted from one duration. For a complete IDF family, use native duration-specific data. The Native 3-hour projections workflow corrects supported durations independently.</p>
     </section>;
   }
   return (

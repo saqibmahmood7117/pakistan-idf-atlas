@@ -244,15 +244,3 @@ export function powerIntensityAtDuration(
   const intensity = fit.coefficient * durationMinutes ** fit.exponent;
   return Number.isFinite(intensity) && intensity > 0 ? intensity : null;
 }
-
-/** Explicit optional disaggregation. This adds assumptions, not observations. */
-export function deriveIdfDurationsFrom24Hours(rows: ResultRow[], exponent: number): ResultRow[] {
-  if (!Number.isFinite(exponent) || exponent <= 0 || exponent >= 1) return [];
-  return rows.filter(row=>row.durationMinutes===1440&&row.depthMm>=0&&Number.isFinite(row.depthMm)).flatMap(row=>
-    [5,10,15,30,60,120,180,360,720,1440].map(duration=>{
-      if(duration===1440)return {...row};
-      const depth=row.depthMm*(duration/1440)**exponent;
-      const intensityScale=(duration/1440)**(exponent-1);
-      return {...row,durationMinutes:duration,depthMm:depth,intensityMmHr:depth/(duration/60),ciLower:row.ciLower*intensityScale,ciUpper:row.ciUpper*intensityScale,derived:true};
-    }));
-}
