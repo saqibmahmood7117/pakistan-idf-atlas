@@ -39,6 +39,12 @@ the downloaded image, HTML, PDF and Word report. The Excel **IDF Equations**
 sheet retains coefficients, exponents and formula-driven values. A curve with
 fewer than two supported durations has no duration equation.
 
+Use **Enter duration t → calculate intensity i** above the chart to enter any
+duration in minutes within the fitted curve’s range. Select a return period;
+intensity (mm/hour) and rainfall depth (mm) update immediately from that
+return period’s full-precision power equation. Invalid or unsupported durations
+do not produce an estimate.
+
 - **Print / Save PDF** opens the browser print dialog. Select A4, 100% scale and
   background graphics; inspect the preview before saving.
 - **Word report (.docx)** creates a genuine editable Office Open XML document,

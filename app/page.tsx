@@ -1,4 +1,5 @@
 "use client";
+import PowerIntensityCalculator from "./components/power-intensity-calculator";
 import { escapeReportText, reportFileStem, REPORT_LAYOUT_CSS } from "../lib/report-export";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -8506,6 +8507,7 @@ export default function App() {
                 </button>
               </div>
             </div>
+            <PowerIntensityCalculator rows={shown} />
             {shown.some((r) => r.durationMinutes <= 1440) ? (
               <>
                 <IdfChart

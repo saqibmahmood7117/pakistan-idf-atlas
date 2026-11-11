@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fitPowerEquation } from '../lib/idf-design.ts';
+import { fitPowerEquation, powerIntensityAtDuration } from '../lib/idf-design.ts';
 
 test('Excel-style power regression recovers independent equations for each return period', () => {
   const periods = [2, 5, 10, 25, 50, 100, 250, 500];
@@ -26,4 +26,18 @@ test('power trendline reports a non-perfect fit for non-power data', () => {
   }));
   const fit = fitPowerEquation(rows, 10);
   assert.ok(fit.rSquared > 0 && fit.rSquared < 0.99);
+});
+
+
+test('duration calculator evaluates the selected power curve within its fitted range', () => {
+  const rows = [10, 100].flatMap((period) => [5, 60, 1440].map((duration) => ({
+    returnPeriodYears: period, durationMinutes: duration, intensityMmHr: period * 100 * duration ** -0.67,
+  })));
+  assert.ok(Math.abs(powerIntensityAtDuration(rows, 10, 25.5) - 1000 * 25.5 ** -0.67) < 1e-8);
+  assert.ok(Math.abs(powerIntensityAtDuration(rows, 100, 60) - 10000 * 60 ** -0.67) < 1e-8);
+  for (const duration of [0, -1, NaN, Infinity, 4.9, 1441]) {
+    assert.equal(powerIntensityAtDuration(rows, 10, duration), null);
+  }
+  assert.equal(powerIntensityAtDuration([], 10, 60), null);
+  assert.equal(powerIntensityAtDuration(rows.filter(row => row.durationMinutes === 1440), 10, 60), null);
 });

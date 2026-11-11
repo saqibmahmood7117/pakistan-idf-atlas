@@ -196,3 +196,20 @@ export function formatShermanEquation(fit: ShermanEquationFit | null) {
   if (!fit) return "Equation unavailable — at least two durations are required";
   return `i(t,T)=${fit.a.toFixed(3)}T^${fit.m.toFixed(3)}/(t+0)^${fit.n.toFixed(3)}`;
 }
+
+/** Evaluate a per-period chart trendline only within its fitted duration range. */
+export function powerIntensityAtDuration(
+  rows: ResultRow[],
+  returnPeriodYears: number,
+  durationMinutes: number,
+): number | null {
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) return null;
+  const fit = fitPowerEquation(rows, returnPeriodYears);
+  if (!fit) return null;
+  const durations = rows.filter((row) => row.returnPeriodYears === returnPeriodYears &&
+    row.durationMinutes > 0 && row.durationMinutes <= 1440 &&
+    row.intensityMmHr > 0 && Number.isFinite(row.intensityMmHr)).map((row) => row.durationMinutes);
+  if (durationMinutes < Math.min(...durations) || durationMinutes > Math.max(...durations)) return null;
+  const intensity = fit.coefficient * durationMinutes ** fit.exponent;
+  return Number.isFinite(intensity) && intensity > 0 ? intensity : null;
+}
