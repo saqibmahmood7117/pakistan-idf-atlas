@@ -121,7 +121,7 @@ required. Monthly QDM is applied after spatial aggregation and before extracting
 corrected annual maxima; this is a district-series correction, not cell-wise QDM.
 
 A single uploaded gauge is not treated as a district reference. District correction
-supports 24-hour return levels only; point gauge duration ratios are not extended
+directly supports 24-hour return levels; point gauge duration ratios are not extended
 to district rainfall. Metadata and the **Bias Spatial Audit** workbook sheet retain
 the spatial mode, polygon identity/version, model member, grid-cell counts,
 reference sampling method and matched baseline years. Changing district, polygon,
@@ -129,6 +129,15 @@ mode or model member invalidates the corresponding calibration. Point and distri
 ensembles are kept separate. A nearest-cell fallback cannot be passed off as a
 historical district-average series. ERA5 correction remains reanalysis-corrected,
 not gauge-validated.
+
+When only 24-hour results are available, the chart plots **intensity against
+return period** and the calculator provides a fixed-duration result lookup.
+It does not display an empty duration axis or attempt to fit a duration equation.
+For district QDM results, **Show derived sub-daily curves (assumed scaling)**
+optionally applies `P(t)=P24*(t/1440)^alpha` after daily correction. It is off by
+default; the exponent, derived status and distinction from independently corrected
+sub-daily rainfall are recorded in the interface and exports. These assumptions
+must be checked against local duration evidence before design use.
 
 ## Bias-corrected CMIP6 workbook format
 

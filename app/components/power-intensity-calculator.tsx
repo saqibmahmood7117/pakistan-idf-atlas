@@ -25,6 +25,18 @@ export default function PowerIntensityCalculator({ rows, globalFit }: { rows: Re
       : intensity === null
         ? `Enter a duration between ${min} and ${max} minutes, the fitted range for this curve.`
         : null;
+  const singleDurations = new Set(rows.filter(row=>row.durationMinutes>0&&Number.isFinite(row.intensityMmHr)).map(row=>row.durationMinutes));
+  if (singleDurations.size === 1 && rows.length) {
+    const supportedDuration = [...singleDurations][0];
+    const selected = rows.find(row=>row.returnPeriodYears===period) ?? rows[0];
+    const options = [...new Set(rows.map(row=>row.returnPeriodYears))].sort((a,b)=>a-b);
+    return <section className="tc-calculator power-calculator" aria-labelledby="power-calculator-title" data-testid="single-duration-lookup">
+      <div className="tc-calculator-head"><div><span>Supported duration result</span><h3 id="power-calculator-title">{supportedDuration===1440?"24-hour":`${supportedDuration}-minute`} rainfall lookup</h3></div><code>Tabulated fitted return level</code></div>
+      <div className="tc-input-grid"><label>Supported duration t (minutes)<input type="number" value={supportedDuration} readOnly /></label><label>Return period T (years)<select aria-label="Return period T (years)" value={selected.returnPeriodYears} onChange={event=>setPeriod(Number(event.target.value))}>{options.map(value=><option key={value} value={value}>{value}-year</option>)}</select></label></div>
+      <div className="tc-result-grid" aria-live="polite"><div><span>Rainfall intensity i</span><strong data-testid="power-intensity">{selected.intensityMmHr.toFixed(3)} mm/hour</strong><small>{selected.returnPeriodYears}-year tabulated estimate</small></div><div><span>Rainfall depth</span><strong>{selected.depthMm.toFixed(3)} mm</strong><small>Over {supportedDuration} minutes</small></div></div>
+      <p className="tc-caution">This analysis contains only one storm duration. The chart compares its return periods. A duration equation cannot be fitted from one duration. For a complete IDF family, use supported duration-specific data or explicitly enable the labelled assumed sub-daily scaling option when available.</p>
+    </section>;
+  }
   return (
     <section className="tc-calculator power-calculator" aria-labelledby="power-calculator-title">
       <div className="tc-calculator-head">

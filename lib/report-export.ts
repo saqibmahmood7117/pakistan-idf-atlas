@@ -20,8 +20,9 @@ export const REPORT_LAYOUT_CSS = `
 .report-decision dt{font-size:9pt;font-weight:bold;color:#0f766e}.report-decision dd{margin:4px 0;font-size:10pt;line-height:1.5}
 .report-download-panel{max-width:1000px;margin:32px auto -30px;padding:20px 24px;border:1px solid #cbdadd;border-radius:12px;background:#fff}
 .report-download-panel h2{margin:0 0 8px}.report-download-panel p{color:#405966;line-height:1.5}.report-actions a{background:#0f766e;color:#fff;padding:9px 13px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
-@media(max-width:700px){.report-decision dl{grid-template-columns:1fr}.report-cover h1{font-size:25pt}}
+@media(max-width:700px){.single-duration-scroll{overflow-x:auto}.single-duration-scroll>svg{min-width:620px}.report-decision dl{grid-template-columns:1fr}.report-cover h1{font-size:25pt}}
 @media print{
+  .single-duration-scroll{overflow:visible}.single-duration-scroll>svg{min-width:0!important}
   .equation-explanation{break-inside:avoid}
   .print-header,.print-footer{display:none!important}
   .report-cover{box-sizing:border-box;height:245mm;min-height:0!important;padding:12mm!important;overflow:visible}

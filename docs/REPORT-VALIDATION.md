@@ -90,3 +90,25 @@ date bounds and district metadata. IFS shares Open-Meteo quotas with ERA5.
   24-hour results, Bias Spatial Audit export, invalidation after district change and
   continued point-mode correction.
   This test does not establish live NASA availability or local gauge accuracy.
+
+## Single-duration chart repair
+
+A corrected daily CMIP6 series can legitimately contain only 24-hour return
+levels. The chart now uses return period as its x-axis in that case, with a
+fixed-duration intensity/depth lookup. It no longer clips all points to the
+24-hour edge of a multi-duration plot or displays unavailable power equations.
+The same branch is used by the on-page report, SVG/PNG and Word export.
+
+For district QDM, optional assumed sub-daily curves can be explicitly enabled.
+They apply P(t)=P24*(t/1440)^alpha after daily correction. The 24-hour input is
+preserved, shorter rows are marked derived, and scaled intervals and the exponent
+are disclosed. The option is off by default; it does not create observation or
+independent sub-daily bias-correction evidence. Ensemble keys separate exponents
+and assumed/native duration bases.
+
+Unit tests cover scaling identity, preserved daily values, derived flags and
+invalid assumptions. Chromium tests with controlled provider records verify
+single-duration main/report charts, eight distinct frequency positions, fixed
+lookup, PNG download, optional curve generation, the duration calculator,
+assumption-labelled Excel/report output and reverting to supported-only output.
+Desktop and mobile chart screenshots were inspected.
