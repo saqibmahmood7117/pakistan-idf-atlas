@@ -25,6 +25,36 @@ The application is a screening and analytical aid. It does not replace local
 gauge validation, governing design criteria, or independent hydrologic and
 engineering review.
 
+## Reports and user manual
+
+The report is generated from the active data, source, model and method. Revision
+2.0 adds an assessment-at-a-glance panel, a 24-hour decision table with intensity,
+depth and annual exceedance probability, and improved A4 typography and tables.
+Download controls are available immediately above the report and at its end.
+
+- **Print / Save PDF** opens the browser print dialog. Select A4, 100% scale and
+  background graphics; inspect the preview before saving.
+- **Word report (.docx)** creates a genuine editable Office Open XML document,
+  with headings, tables, an embedded chart and page numbers. It replaces the
+  previous HTML document saved with a `.doc` extension.
+- **Editable HTML** includes the report styles and chart for offline viewing.
+- [User manual (PDF)](public/downloads/Pakistan-IDF-Atlas-User-Manual.pdf)
+  and [browser-readable manual](public/downloads/Pakistan-IDF-Atlas-User-Manual.html)
+  cover source preparation, QC, fitting, CMIP6, interpretation and export.
+
+A complete example is available as [PDF](public/downloads/Pakistan-IDF-Atlas-Sample-Report.pdf),
+[Word](public/downloads/Pakistan-IDF-Atlas-Sample-Report.docx) and
+[HTML](public/downloads/Pakistan-IDF-Atlas-Sample-Report.html).
+**The example uses reproducible synthetic daily rainfall for 1985–2019. It is
+for demonstrating the report format, not a location-specific rainfall assessment.**
+No real gauge data were supplied for this example. Generate an actual assessment
+by loading the required data and exporting the active analysis.
+
+The report module is `lib/report-export.ts`; browser layout and content are in
+`app/page.tsx`. The static manual HTML is the editable source for its PDF.
+Whenever the manual or report styling changes, reprint the manual/sample in
+Chromium and inspect the A4 pages and DOCX chart before committing the artifacts.
+
 ## Data sources
 
 | Source | Connection | Native support in the Atlas |

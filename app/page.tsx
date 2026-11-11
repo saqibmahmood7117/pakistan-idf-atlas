@@ -1,4 +1,5 @@
 "use client";
+import { escapeReportText, reportFileStem, REPORT_LAYOUT_CSS } from "../lib/report-export";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DISTRICTS_BY_REGION,
@@ -6482,7 +6483,7 @@ export default function App() {
       `${(sourceTab === "observed" ? name : district).replaceAll(" ", "-") || "precipitation"}-idf-curves.xlsx`,
     );
   }
-  function report(format: "html" | "doc" = "html") {
+  async function report(format: "html" | "docx" = "html") {
     const node = document.querySelector("#report")?.cloneNode(true) as
       | HTMLElement
       | undefined;
@@ -6490,15 +6491,21 @@ export default function App() {
     node.querySelector(".report-actions")?.remove();
     const reportName =
       sourceTab === "observed" ? name || "Observed gauge" : district;
-    const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${reportName} IDF technical report</title><style>${REPORT_EXPORT_CSS}</style></head><body>${node.outerHTML}</body></html>`,
-      word = format === "doc";
-    save(
-      new Blob([html], { type: word ? "application/msword" : "text/html" }),
-      `${reportName.replaceAll(" ", "-")}-IDF-technical-report.${word ? "doc" : "html"}`,
-    );
+    try {
+      if (format === "docx") {
+        const { buildWordReport } = await import("../lib/report-export");
+        save(await buildWordReport(node, `${reportName} IDF technical report`), `${reportFileStem(reportName)}-IDF-technical-report.docx`);
+        return;
+      }
+      const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeReportText(reportName)} IDF technical report</title><style>${REPORT_EXPORT_CSS}${REPORT_LAYOUT_CSS}</style></head><body>${node.outerHTML}</body></html>`;
+      save(new Blob([html], { type: "text/html;charset=utf-8" }), `${reportFileStem(reportName)}-IDF-technical-report.html`);
+    } catch (error) {
+      window.alert(`Report export failed: ${error instanceof Error ? error.message : "Please try HTML or Print / Save PDF."}`);
+    }
   }
   return (
     <main>
+      <style>{REPORT_LAYOUT_CSS}</style>
       <header className="site-header">
         <a className="brand" href="#top">
           <span className="brand-icon" aria-hidden="true">IDF</span>
@@ -6509,6 +6516,7 @@ export default function App() {
           <a href="#boundary">Map</a>
           <a href="#curves">Analysis</a>
           <a href="#report">Report</a>
+          <a href="/downloads/Pakistan-IDF-Atlas-User-Manual.html">Manual</a>
         </nav>
         <span className="data-current">
           <i />
@@ -9240,6 +9248,17 @@ export default function App() {
           </article>
         </div>
       </section>
+      <aside className="content-width report-download-panel" aria-label="Report downloads">
+        <h2>Report and user manual</h2>
+        <p>Exports reflect the current data, model and method. Review the result status before sharing. Save the Excel workbook alongside the report to retain the calculation evidence.</p>
+        <div className="report-actions">
+          <button onClick={() => window.print()}>Print / Save PDF</button>
+          <button onClick={() => report("docx")}>Download Word report (.docx)</button>
+          <button onClick={() => report("html")}>Download editable HTML</button>
+          <a href="/downloads/Pakistan-IDF-Atlas-User-Manual.pdf" download>Download user manual (PDF)</a>
+          <a href="/downloads/Pakistan-IDF-Atlas-Sample-Report.pdf" download>Sample report (synthetic data)</a>
+        </div>
+      </aside>
       <section id="report" className="content-width report">
         <div className="print-header">
           Pakistan IDF Atlas · Intensity-Duration-Frequency Technical Report
@@ -9292,7 +9311,7 @@ export default function App() {
               </div>
               <div>
                 <dt>Revision</dt>
-                <dd>1.0 · generated from active analysis</dd>
+                <dd>2.0 · generated from active analysis</dd>
               </div>
               <div>
                 <dt>Precipitation source</dt>
@@ -9385,6 +9404,25 @@ export default function App() {
                         : "The selected annual covariate does not have at least 20 values matched to eligible annual maxima, so no nonstationary frequency result is issued."
                     : `The ${sourceTab === "online" ? onlineMetadata?.dataset : sourceTab === "cmip6" ? `${cmipMetadata?.dataset ?? "uploaded GCM record"} (${cmipModel}, ${cmipMetadata?.member ?? "member not reported"})` : `uploaded ${observedResolution} record`} produced ${activeStationarity.n} eligible 24-hour annual maxima. Using ${METHOD_LABEL[method]}, the estimated 24-hour intensity is ${selected10?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 10-year event and ${selected500?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 500-year event. The 250- and 500-year results extend far beyond the record and require independent review.`}
           </p>
+          <div className="report-decision">
+            <h3>Assessment at a glance</h3>
+            <dl>
+              <div><dt>Result status</dt><dd>{shown.length ? analysisClassification : "No fitted result — this document records setup and methodology only."}</dd></div>
+              <div><dt>Basis of assessment</dt><dd>{activeFrequencyMethodLabel} · {modelTab === "stationary" ? "stationary parameters" : covariateLabel}. {sourceTab === "cmip6" && cmipImportedReady ? "Imported model curves; annual maxima were not re-fitted." : `${activeStationarity.n} eligible 24-hour annual maxima.`}</dd></div>
+              <div><dt>Duration support</dt><dd>{sourceTab === "cmip6" && cmipImportedReady ? "24-hour return levels only. No sub-daily results inferred." : activeNativeHourly ? "Native hourly observations support 1–24-hour rolling totals; shorter durations are derived." : "Daily data support 24-hour totals. Any shorter duration is derived and must be checked against local evidence."}</dd></div>
+              <div><dt>Required next action</dt><dd>{shown.length ? "Check source quality, duration assumptions and model sensitivity; obtain independent hydrologic review before design adoption." : "Upload a suitable gauge record or retrieve precipitation, then run the analysis and export again."}</dd></div>
+            </dl>
+          </div>
+          <div className="report-table-wrap">
+            <table>
+              <caption>Decision summary · selected 24-hour return levels</caption>
+              <thead><tr><th scope="col">Return period (years)</th><th scope="col">Annual exceedance probability</th><th scope="col">Intensity (mm/hour)</th><th scope="col">24-hour depth (mm)</th></tr></thead>
+              <tbody>{[10, 50, 100, 250, 500].map((period) => {
+                const row = selected24h.find((item) => item.returnPeriodYears === period);
+                return <tr key={period}><th scope="row">{period}</th><td>{(100 / period).toFixed(1)}%</td><td>{row ? row.intensityMmHr.toFixed(2) : "Not estimated"}</td><td>{row ? (row.intensityMmHr * 24).toFixed(2) : "Not estimated"}</td></tr>;
+              })}</tbody>
+            </table>
+          </div>
           <div className="report-kpis">
             <div>
               <span>10-year · 24-hour</span>
@@ -11381,8 +11419,8 @@ export default function App() {
 
         <div className="report-actions">
           <button onClick={() => window.print()}>Print / Save PDF</button>
-          <button onClick={() => report("doc")}>
-            Download Word-compatible report
+          <button onClick={() => report("docx")}>
+            Download Word report (.docx)
           </button>
           <button onClick={() => report("html")}>Download editable HTML</button>
         </div>

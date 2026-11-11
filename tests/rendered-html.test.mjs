@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, readdir, stat } from "node:fs/promises";
 import test from "node:test";
+import { escapeReportText, reportFileStem } from "../lib/report-export.ts";
 import * as XLSX from "xlsx";
 import { DISTRICTS, PAKISTAN_IDF_ENSEMBLE_MODELS, buildIdfRows } from "../lib/idf-data.ts";
 import { ERA5_DISTRICT_CELL_LIMIT, ERA5_MULTI_LOCATION_BATCH_SIZE, LIVE_SOURCE_CONFIG, aggregatePrecipitationForPlot, climateServRecords, era5DistrictGrid, mergeHourlyRecords, nasaPowerRecords, peakPreservingPrecipitationPlot, pointBufferGeometry, powerDistrictGrid, reanalysisDistrictGrid, splitDateRange } from "../lib/online-precipitation.ts";
@@ -242,7 +243,7 @@ test("renders development preview metadata", async () => {
   assert.match(html, /Conclusions and recommendations/);
   assert.match(html, /Appendix A/);
   assert.match(html, /Appendix B/);
-  assert.match(html, /Download Word-compatible report/);
+  assert.match(html, /Download Word report/);
 
   const source = `${await readFile(new URL("../app/page.tsx", import.meta.url), "utf8")}${await readFile(new URL("../lib/idf-data.ts", import.meta.url), "utf8")}${await readFile(new URL("../lib/district-boundaries.ts", import.meta.url), "utf8")}${await readFile(new URL("../lib/observed-idf.ts", import.meta.url), "utf8")}${await readFile(new URL("../lib/observed-workbook.ts", import.meta.url), "utf8")}${await readFile(new URL("../lib/covariate-workbook.ts", import.meta.url), "utf8")}${await readFile(new URL("../lib/online-covariates.ts", import.meta.url), "utf8")}${await readFile(new URL("../lib/online-precipitation.ts", import.meta.url), "utf8")}${await readFile(new URL("../lib/cmip6-online.ts", import.meta.url), "utf8")}${await readFile(new URL("../app/api/online-covariates/route.ts", import.meta.url), "utf8")}${await readFile(new URL("../app/api/online-precipitation/route.ts", import.meta.url), "utf8")}${await readFile(new URL("../app/api/cmip6-precipitation/route.ts", import.meta.url), "utf8")}`;
   assert.match(source, /NASA NEX-GDDP-CMIP6/);
@@ -1176,4 +1177,28 @@ test("daily source endpoint never presents screening values as precipitation dat
   assert.equal(body.dataStatus, "not_ingested");
   assert.equal(body.rows, undefined);
   assert.match(body.officialDownloadUrl, /cds\.climate\.copernicus\.eu/);
+});
+
+
+test("report metadata escapes user-controlled names and creates safe filenames", () => {
+  assert.equal(escapeReportText('</title><script>alert("x")</script>&'), '&lt;/title&gt;&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;&amp;');
+  assert.equal(reportFileStem('../../Swat <gauge>/2026'), 'Swat-gauge-2026');
+  assert.equal(reportFileStem('???'), 'precipitation');
+  assert.equal(reportFileStem('x'.repeat(200)).length, 100);
+});
+
+test("downloadable manual and sample report packages are present", async () => {
+  const base = new URL('../public/downloads/', import.meta.url);
+  const manual = await readFile(new URL('Pakistan-IDF-Atlas-User-Manual.html', base), 'utf8');
+  assert.match(manual, /Monthly|monthly/);
+  assert.match(manual, /Review before sharing/);
+  for (const file of ['Pakistan-IDF-Atlas-User-Manual.pdf', 'Pakistan-IDF-Atlas-Sample-Report.pdf']) {
+    assert.equal((await readFile(new URL(file, base))).subarray(0, 5).toString(), '%PDF-');
+  }
+  const word = await readFile(new URL('Pakistan-IDF-Atlas-Sample-Report.docx', base));
+  assert.equal(word.subarray(0, 2).toString(), 'PK');
+  const sample = await readFile(new URL('Pakistan-IDF-Atlas-Sample-Report.html', base), 'utf8');
+  assert.match(sample, /SYNTHETIC DEMONSTRATION/);
+  assert.match(sample, /Decision summary/);
+  assert.match(sample, /<svg/);
 });
