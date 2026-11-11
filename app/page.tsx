@@ -1659,8 +1659,8 @@ function IdfChart({
   designIntensity?: number | null;
 }) {
   const w = 800,
-    h = 530,
-    m = { l: 82, r: 118, t: 96, b: 70 },
+    h = 668,
+    m = { l: 82, r: 118, t: 234, b: 70 },
     plotW = w - m.l - m.r,
     plotH = h - m.t - m.b,
     durations = [5, 10, 15, 30, 60, 120, 180, 360, 720, 1440],
@@ -1688,7 +1688,7 @@ function IdfChart({
         ),
       };
     }),
-    powerEquationFit = fitPowerEquation(rows, designReturnPeriod),
+    powerEquationFits = series.map((item) => fitPowerEquation(item.rows, item.T)),
     values = series.flatMap((s) => s.rows.map((r) => r.intensityMmHr)),
     max = Math.max(1, ...values) * 1.08,
     min = Math.max(0.001, Math.min(...values) * 0.84),
@@ -1748,45 +1748,39 @@ function IdfChart({
           </clipPath>
         </defs>
         <rect width={w} height={h} rx="10" fill="#ffffff" />
-        <g>
-          <rect
-            x={m.l}
-            y="20"
-            width={plotW}
-            height="62"
-            rx="7"
-            fill="#edf8f7"
-            stroke="#b6d8d5"
-          />
-          <text
-            x={m.l + 12}
-            y="36"
-            fontSize="8.5"
-            fontWeight="800"
-            letterSpacing=".65"
-            fill="#0f766e"
-          >
-            {`${designReturnPeriod}-YEAR CURVE · POWER EQUATION · t MINUTES · i MM/HOUR`}
+        <g aria-label="Power trendline equations for all return periods">
+          <text x={m.l} y="35" fontSize="9" fontWeight="700" fill="#173b5c">
+            Excel-style power trendlines · i = c × tᵖ · t in minutes · i in mm/hour
           </text>
-          <text
-            x={m.l + 12}
-            y="57"
-            fontSize="15"
-            fontWeight="700"
-            fill="#173b5c"
-          >
-            {formatPowerEquation(powerEquationFit)}
-          </text>
-          <text
-            x={m.l + 12}
-            y="75"
-            fontSize="12.5"
-            fontWeight="700"
-            fill="#173b5c"
-          >
-            {powerEquationFit
-              ? `R² = ${powerEquationFit.rSquared.toFixed(3)}`
-              : "R² unavailable"}
+          {series.map((item, index) => {
+            const fit = powerEquationFits[index],
+              left = m.l + (index % 2) * (plotW / 2 + 4),
+              top = 45 + Math.floor(index / 2) * 43;
+            return (
+              <g key={`equation-${item.T}`} data-return-period={item.T}>
+                <rect x={left} y={top} width={plotW / 2 - 4} height="38" rx="5" fill="#f7fbfc" stroke="#c4d7db" />
+                <rect x={left} y={top + 5} width="3" height="28" rx="1.5" fill={colors[index]} />
+                <text x={left + 10} y={top + 14} fontSize="9" fontWeight="700" fill={colors[index]}>
+                  {item.T}-year
+                </text>
+                {fit ? (
+                  <>
+                    <text x={left + 64} y={top + 15} fontSize="12" fontWeight="700" fill="#173b5c">
+                      {`i = ${fit.coefficient.toFixed(3)}t`}<tspan baselineShift="super" fontSize="9">{fit.exponent.toFixed(3)}</tspan>
+                    </text>
+                    <text x={left + 64} y={top + 30} fontSize="9.5" fill="#405966">
+                      {`R² = ${fit.rSquared.toFixed(4)}`}
+                    </text>
+                    <title>{`${item.T}-year: ${formatPowerEquation(fit)}; log-space R² = ${fit.rSquared.toFixed(6)}; ${fit.sampleSize} durations`}</title>
+                  </>
+                ) : (
+                  <text x={left + 64} y={top + 24} fontSize="9" fill="#607b86">Requires at least two durations</text>
+                )}
+              </g>
+            );
+          })}
+          <text x={m.l} y="226" fontSize="8" fill="#607b86">
+            R² measures the log–log trendline fit, not the reliability of the rainfall estimate.
           </text>
         </g>
         <rect

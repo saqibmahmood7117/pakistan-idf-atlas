@@ -32,6 +32,13 @@ The report is generated from the active data, source, model and method. Revision
 depth and annual exceedance probability, and improved A4 typography and tables.
 Download controls are available immediately above the report and at its end.
 
+The IDF chart shows colour-matched Excel-style power equations for every return
+period, with superscript exponents and log-space R². Each equation fits
+`i = c × t^p`, where `t` is minutes and `i` is mm/hour. Equations remain in
+the downloaded image, HTML, PDF and Word report. The Excel **IDF Equations**
+sheet retains coefficients, exponents and formula-driven values. A curve with
+fewer than two supported durations has no duration equation.
+
 - **Print / Save PDF** opens the browser print dialog. Select A4, 100% scale and
   background graphics; inspect the preview before saving.
 - **Word report (.docx)** creates a genuine editable Office Open XML document,
