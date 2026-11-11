@@ -57,6 +57,8 @@ import {
   ERA5_MULTI_LOCATION_BATCH_SIZE,
   ERA5_REQUEST_PACING_MS,
   LIVE_SOURCE_CONFIG,
+  IFS_PRECIPITATION_NOTICE,
+  requirePrecipitationMillimetres,
   climateServDate,
   climateServRecords,
   aggregatePrecipitationForPlot,
@@ -213,7 +215,7 @@ async function fetchGeoCollection(url: string) {
 }
 
 type DirectEra5Request = {
-  source: "era5" | "era5land";
+  source: "era5" | "era5land" | "ifs";
   resolution: OnlineTemporalResolution;
   mode: "point" | "district";
   start: string;
@@ -229,6 +231,8 @@ type DirectEra5Request = {
   bypassCache?: boolean;
 };
 type DirectOpenMeteoPayload = {
+  hourly_units?: { precipitation?: string };
+  daily_units?: { precipitation_sum?: string };
   latitude?: number;
   longitude?: number;
   daily?: {
@@ -383,6 +387,7 @@ async function extractEra5InBrowser(
           throw new Error(
             "The reanalysis provider returned inconsistent timestamps across grid cells.",
           );
+        if (request.source === "ifs") requirePrecipitationMillimetres(request.resolution === "hourly" ? location.hourly_units?.precipitation : location.daily_units?.precipitation_sum);
         const weight = batch[index].weight;
         for (let item = 0; item < values.length; item += 1) {
           const value = values[item];
@@ -438,20 +443,21 @@ async function extractEra5InBrowser(
       );
   }
   const config = LIVE_SOURCE_CONFIG[request.source],
-    sourceLabel = request.source === "era5" ? "ERA5" : "ERA5-Land",
+    sourceLabel = request.source === "ifs" ? "ECMWF IFS archive" : request.source === "era5" ? "ERA5" : "ERA5-Land",
     spatialMethod =
       request.mode === "point"
         ? `Nearest native ${sourceLabel} grid cell returned directly to the browser; ${request.resolution} precipitation retained in UTC`
-        : `Overlap-weighted district ${request.resolution} series approximated from ${points.length} spatially representative ${sourceLabel} cells; polygon overlap fractions estimated on a 5×5 sub-grid per candidate cell`,
+        : request.source === "ifs" ? `Approximate district ${request.resolution} mean from ${points.length} representative 0.1° request-mesh points mapped to nearest IFS cells; request-mesh polygon overlap weights are approximate, not exact native-grid area weights` : `Overlap-weighted district ${request.resolution} series approximated from ${points.length} spatially representative ${sourceLabel} cells; polygon overlap fractions estimated on a 5×5 sub-grid per candidate cell`,
     metadataBase = {
       source: request.source,
+      sourceCaveat: request.source === "ifs" ? IFS_PRECIPITATION_NOTICE : undefined,
       dataset:
         request.resolution === "hourly"
           ? `${sourceLabel} hourly precipitation`
           : `${sourceLabel} daily precipitation`,
       provider: config.provider,
       providerUrl: config.providerUrl,
-      retrievalService: `${config.retrievalService} · direct browser fallback after shared-server throttle`,
+      retrievalService: `${config.retrievalService} · direct browser retrieval`,
       extractionMode: request.mode,
       spatialMethod,
       nativeResolution:
@@ -999,7 +1005,7 @@ async function extractEra5TemperatureInBrowser(
       dataset: config.dataset,
       provider: config.provider,
       providerUrl: config.providerUrl,
-      retrievalService: `${config.retrievalService} · direct browser fallback after shared-server throttle`,
+      retrievalService: `${config.retrievalService} · direct browser retrieval`,
       spatialScope:
         request.mode === "district"
           ? "Selected district"
@@ -4076,7 +4082,7 @@ export default function App() {
     }
     if (
       onlineResolution === "hourly" &&
-      onlineSource !== "era5"
+      onlineSource !== "era5" && onlineSource !== "ifs"
     ) {
       setOnlineMessage(
         onlineSource === "chirps"
@@ -4181,17 +4187,17 @@ export default function App() {
       if (
         data.status === "error" &&
         payload.action === "start" &&
-        (payload.source === "era5" || payload.source === "era5land") &&
+        (payload.source === "era5" || payload.source === "era5land" || payload.source === "ifs") &&
         /HTTP (429|502|503|504)|temporarily throttled|try again later/i.test(
           data.error,
         )
       ) {
         setOnlineMessage(
-          `The shared retrieval service is temporarily throttled. Retrying ${payload.source === "era5land" ? "ERA5-Land" : "ERA5"} directly from this browser…`,
+          `The shared retrieval service is temporarily throttled. Retrying ${payload.source === "ifs" ? "ECMWF IFS" : payload.source === "era5land" ? "ERA5-Land" : "ERA5"} directly from this browser…`,
         );
         return await extractEra5InBrowser(
           {
-            source: payload.source as "era5" | "era5land",
+            source: payload.source as "era5" | "era5land" | "ifs",
             resolution: payload.resolution as OnlineTemporalResolution,
             mode: payload.mode as "point" | "district",
             start: String(payload.start),
@@ -4239,9 +4245,9 @@ export default function App() {
           spatialMode === "district" ? matchedBoundaryIdentity?.validOn : undefined,
       };
       let response: OnlineExtractionResponse;
-      if (onlineSource === "era5") {
+      if (onlineSource === "era5" || onlineSource === "ifs") {
         setOnlineMessage(
-          `Retrieving ERA5 directly from Open-Meteo with a quota-bounded ${spatialMode === "district" ? `${ERA5_DISTRICT_CELL_LIMIT[onlineResolution]}-cell district sample` : "point request"}…`,
+          `Retrieving ${SOURCE_META[onlineSource].short} directly from Open-Meteo with a quota-bounded ${spatialMode === "district" ? `${ERA5_DISTRICT_CELL_LIMIT[onlineResolution]}-cell district sample` : "point request"}…`,
         );
         try {
           response = await extractEra5InBrowser(
@@ -4287,7 +4293,7 @@ export default function App() {
               /failed to fetch|network|cors/i.test(error.message))
           ) {
             setOnlineMessage(
-              "Direct browser access is unavailable. Retrying the same quota-bounded ERA5 request through the shared route…",
+              `Direct browser access is unavailable. Retrying the same quota-bounded ${SOURCE_META[onlineSource].short} request through the shared route…`,
             );
             response = await post(startPayload);
           } else {
@@ -4363,7 +4369,7 @@ export default function App() {
       setOnlineProgress(0);
       setShowOnlinePrecipitationPlot(false);
       setOnlineQuotaBlocked(
-        onlineSource === "era5" &&
+        (onlineSource === "era5" || onlineSource === "ifs") &&
           error instanceof Error &&
           /HTTP 429|quota is exhausted/i.test(error.message),
       );
@@ -5355,6 +5361,9 @@ export default function App() {
           boundary_valid_on:
             onlineMetadata.boundaryValidOn ?? "not applicable",
           dataset: onlineMetadata.dataset,
+          source_id: onlineMetadata.source,
+          product_first_date: LIVE_SOURCE_CONFIG[onlineMetadata.source].firstDate,
+          source_caveat: onlineMetadata.sourceCaveat ?? "See product documentation and report limitations",
           provider: onlineMetadata.provider,
           retrieval_service: onlineMetadata.retrievalService,
           retrieved_at_utc: onlineMetadata.retrievedAt,
@@ -5601,7 +5610,7 @@ export default function App() {
       provider_access: meta.accessMode,
       aggregation_required:
         spatialMode === "district"
-          ? `Clip all intersecting grid cells to the verified district polygon and calculate an overlap-area-weighted ${selectedOnlineSource === "era5" && onlineResolution === "hourly" ? "hourly" : "daily"} mean; do not relabel a single grid point as a district average.`
+          ? `Clip all intersecting grid cells to the verified district polygon and calculate an overlap-area-weighted ${(selectedOnlineSource === "era5" || selectedOnlineSource === "ifs") && onlineResolution === "hourly" ? "hourly" : "daily"} mean; do not relabel a single grid point as a district average.`
           : "Extract the provider's containing or nearest grid cell at the entered coordinates and record the returned grid-cell coordinates and distance; do not describe the point series as a district average.",
       status:
         "Precipitation values are not included until downloaded from the official provider and processed.",
@@ -5638,7 +5647,7 @@ export default function App() {
       ],
       [
         6,
-        selectedOnlineSource === "era5" && onlineResolution === "hourly"
+        (selectedOnlineSource === "era5" || selectedOnlineSource === "ifs") && onlineResolution === "hourly"
           ? "Create Timestamp and hourly Precipitation (mm) columns, then load the processed workbook in Observed Excel Data for empirical duration-specific IDF fitting."
           : "Create daily Date and Precipitation (mm) columns, then load the processed workbook in Observed Excel Data for empirical IDF fitting.",
       ],
@@ -5805,6 +5814,7 @@ export default function App() {
     if (sourceTab === "online" && onlineMetadata)
       Object.assign(summary[0], {
         Online_dataset: onlineMetadata.dataset,
+        Online_source_caveat: onlineMetadata.sourceCaveat ?? "See report limitations",
         Online_provider: onlineMetadata.provider,
         Retrieval_service: onlineMetadata.retrievalService,
         Retrieval_timestamp_UTC: onlineMetadata.retrievedAt,
@@ -6540,7 +6550,7 @@ export default function App() {
             </p>
             <h1>Precipitation IDF Analysis</h1>
             <p>
-              Upload gauge data or retrieve ERA5, ERA5-Land, CHIRPS, IMERG and
+              Upload gauge data or retrieve ERA5, ECMWF IFS, ERA5-Land, CHIRPS, IMERG and
               NASA POWER precipitation, or directly retrieve NASA
               NEX-GDDP-CMIP6 projections; quality-check, fit, compare,
               visualize and export a traceable analysis.
@@ -6923,7 +6933,7 @@ export default function App() {
               <p className="eyebrow">Live present-climate extraction</p>
               <h2>{SOURCE_META[onlineSource].label}</h2>
               <p>
-                {onlineSource === "era5" || onlineSource === "era5land"
+                {onlineSource === "era5" || onlineSource === "era5land" || onlineSource === "ifs"
                   ? "Hourly or daily"
                   : "Daily"}{" "}
                 ·{" "}
@@ -6950,6 +6960,7 @@ export default function App() {
                     );
                     if (
                       next !== "era5" &&
+                      next !== "ifs" &&
                       next !== "era5land" &&
                       onlineResolution === "hourly"
                     )
@@ -6958,6 +6969,7 @@ export default function App() {
                   disabled={onlineBusy || cmipBusy}
                 >
                   <option value="era5">ERA5 reanalysis · rainfall available</option>
+                  <option value="ifs">ECMWF IFS · hourly / daily · from 2017</option>
                   <option value="era5land" disabled>
                     ERA5-Land · rainfall unavailable through this API
                   </option>
@@ -6987,13 +6999,13 @@ export default function App() {
                   </option>
                   <option
                     value="hourly"
-                    disabled={onlineSource !== "era5"}
+                    disabled={onlineSource !== "era5" && onlineSource !== "ifs"}
                   >
-                    Hourly series · ERA5
+                    Hourly series · ERA5 or ECMWF IFS
                   </option>
                 </select>
                 <small className="field-note">
-                  {onlineSource === "era5"
+                  {onlineSource === "ifs" ? "Hourly IFS supports rolling 1- to 24-hour maxima. The record starts in 2017 and is provisional for long return periods." : onlineSource === "era5"
                     ? "Hourly ERA5 supports rolling 1-, 2-, 3-, 6-, 12- and 24-hour maxima. ERA5-Land precipitation is not exposed by the connected API."
                     : onlineSource === "era5land"
                       ? ERA5_LAND_PRECIPITATION_NOTICE
@@ -7065,7 +7077,7 @@ export default function App() {
                   {spatialMode === "district" && matchedBoundaryIdentity
                     ? `${matchedBoundaryIdentity.source} · ${matchedBoundaryIdentity.code} · ${matchedBoundaryIdentity.version} · valid from ${matchedBoundaryIdentity.validOn}. `
                     : ""}
-                  {onlineSource === "era5"
+                  {onlineSource === "ifs" ? IFS_PRECIPITATION_NOTICE : onlineSource === "era5"
                     ? `ERA5 ${onlineResolution} precipitation is retrieved directly from the provider service. District mode combines a quota-bounded ${ERA5_DISTRICT_CELL_LIMIT[onlineResolution]}-cell representative sample with documented approximate overlap weights; point mode uses the nearest returned grid cell. Successful provider batches are cached in this browser to avoid repeated quota use. ERA5-Land remains available elsewhere for supported land-surface covariates, but not as a rainfall source through this connection.`
                     : onlineSource === "era5land"
                       ? ERA5_LAND_PRECIPITATION_NOTICE
@@ -9427,7 +9439,7 @@ export default function App() {
             <dl>
               <div><dt>Result status</dt><dd>{shown.length ? analysisClassification : "No fitted result — this document records setup and methodology only."}</dd></div>
               <div><dt>Basis of assessment</dt><dd>{activeFrequencyMethodLabel} · {modelTab === "stationary" ? "stationary parameters" : covariateLabel}. {sourceTab === "cmip6" && cmipImportedReady ? "Imported model curves; annual maxima were not re-fitted." : `${activeStationarity.n} eligible 24-hour annual maxima.`}</dd></div>
-              <div><dt>Duration support</dt><dd>{sourceTab === "cmip6" && cmipImportedReady ? "24-hour return levels only. No sub-daily results inferred." : activeNativeHourly ? "Native hourly observations support 1–24-hour rolling totals; shorter durations are derived." : "Daily data support 24-hour totals. Any shorter duration is derived and must be checked against local evidence."}</dd></div>
+              <div><dt>Duration support</dt><dd>{sourceTab === "cmip6" && cmipImportedReady ? "24-hour return levels only. No sub-daily results inferred." : activeNativeHourly ? "Native hourly records support 1–24-hour rolling totals; shorter durations are derived." : "Daily data support 24-hour totals. Any shorter duration is derived and must be checked against local evidence."}</dd></div>
               <div><dt>Required next action</dt><dd>{shown.length ? "Check source quality, duration assumptions and model sensitivity; obtain independent hydrologic review before design adoption." : "Upload a suitable gauge record or retrieve precipitation, then run the analysis and export again."}</dd></div>
             </dl>
           </div>
@@ -9793,6 +9805,7 @@ export default function App() {
               </div>
             </>
           )}
+          {sourceTab === "online" && onlineSource === "ifs" && <p className="report-note"><strong>ECMWF IFS source limitation:</strong> {onlineMetadata?.sourceCaveat ?? IFS_PRECIPITATION_NOTICE}</p>}
           <h3>{sourceTab === "cmip6" ? "3.3" : "3.2"} Quality-control rules</h3>
           <p>
             {sourceTab === "cmip6"
@@ -9803,7 +9816,7 @@ export default function App() {
                 : "A production CMIP6 workflow must verify model, experiment, ensemble member, grid, calendar, units and missing days; convert precipitation flux consistently; compare historical simulations against quality-controlled gauges; and preserve model-by-scenario provenance. No active series has been retrieved."
               : sourceTab === "online"
                 ? onlineResolution === "hourly"
-                  ? "Returned ERA5 timestamps are retained in UTC, sorted and de-duplicated; null, non-numeric and negative precipitation values are rejected; missing hours are counted; and only years with at least 90% expected hourly coverage are retained. Rolling 1-, 2-, 3-, 6-, 12- and 24-hour annual maxima are calculated only from consecutive hourly values."
+                  ? "Returned online hourly timestamps are retained in UTC, sorted and de-duplicated; null, non-numeric and negative precipitation values are rejected; missing hours are counted; and only years with at least 90% expected hourly coverage are retained. Rolling 1-, 2-, 3-, 6-, 12- and 24-hour annual maxima are calculated only from consecutive hourly values."
                   : "Returned dates are sorted and de-duplicated; null, non-numeric and negative precipitation values are rejected; missing calendar days are counted; and only years with at least 90% expected daily coverage are retained for annual maxima. Provider bias, gauge comparison and precipitation-product structural uncertainty are not removed by these automated checks."
                 : observedResolution === "hourly"
                   ? "Timestamps are normalized to whole local clock hours without timezone conversion and de-duplicated; non-numeric or negative precipitation is rejected; missing hours are counted; and only years with at least 90% hourly coverage are eligible. Rolling 1-, 2-, 3-, 6-, 12- and 24-hour annual maxima are calculated from consecutive observations."

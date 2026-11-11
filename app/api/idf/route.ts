@@ -23,6 +23,7 @@ export async function GET(request: Request) {
     ![
       "fused",
       "era5",
+      "ifs",
       "era5land",
       "imerg",
       "imergEarly",

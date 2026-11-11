@@ -48,6 +48,7 @@ export type Region = keyof typeof DISTRICTS_BY_REGION;
 export type SourceId =
   | "fused"
   | "era5"
+  | "ifs"
   | "era5land"
   | "imerg"
   | "imergEarly"
@@ -156,6 +157,17 @@ export const SOURCE_META = {
     accessUrl: "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels",
     accessLabel: "Copernicus ERA5 · retrieved through Open-Meteo",
     accessMode: "The atlas retrieves hourly or daily precipitation from the ERA5 model through the Open-Meteo Historical Weather API and records the temporal resolution, returned grid and spatial method.",
+  },
+  ifs: {
+    label: "ECMWF IFS operational analysis archive",
+    short: "ECMWF IFS",
+    temporal: "Hourly / daily · 2017–present; short analysis record",
+    coverage: "Approximately 9 km global model archive",
+    status: "Live point and sampled district extraction",
+    factor: 1,
+    accessUrl: "https://open-meteo.com/en/docs/historical-weather-api",
+    accessLabel: "ECMWF IFS · explicit Open-Meteo ecmwf_ifs archive",
+    accessMode: "Retrieve hourly precipitation or daily sums with models=ecmwf_ifs. Keep the model label and returned grid coordinates. District values use a representative request mesh and are approximate. Operational model upgrades and the record beginning in 2017 require consistency and gauge checks before IDF use.",
   },
   era5land: {
     label: "ERA5-Land reanalysis",

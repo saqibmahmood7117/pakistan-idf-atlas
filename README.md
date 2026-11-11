@@ -94,10 +94,17 @@ not rainfall accuracy. Independently validate local gauge extremes before design
 | Source | Connection | Native support in the Atlas |
 | --- | --- | --- |
 | ERA5 | Open-Meteo Historical Weather API | Daily or hourly point/grid-cell data; district sampling where supported |
+| ECMWF IFS | Open-Meteo explicit `ecmwf_ifs` archive | Hourly or daily from 2017; point or sampled district mean |
 | CHIRPS | SERVIR ClimateSERV | Daily point or polygon statistics |
 | NASA NEX-GDDP-CMIP6 v2 | NASA NCCS THREDDS/NCSS | Daily `pr`, one model/member/scenario at a time |
 | Gauge workbooks | Local Excel/CSV import | Daily, hourly, or sub-hourly observations |
 | Corrected CMIP6 results | Local Excel import | Model-specific 24-hour GEV return levels and ensemble spread |
+
+ECMWF IFS is an operational model-analysis archive, not a homogeneous long-term
+reanalysis. Its shorter record and model upgrades limit rare-event inference.
+The product shares Open-Meteo quotas with ERA5; it is not an independent
+retrieval-service fallback. District extraction maps a representative 0.1°
+request mesh to nearest model cells and is explicitly approximate.
 
 No OpenAI API key is required. Provider requests use public data services and
 the imported files remain in the browser workflow.

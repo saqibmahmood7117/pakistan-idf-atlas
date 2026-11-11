@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   if (
     ![
       "era5",
+      "ifs",
       "era5land",
       "imerg",
       "imergEarly",

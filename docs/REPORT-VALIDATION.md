@@ -59,3 +59,15 @@ The expanded sample is still synthetic and is not a local rainfall assessment.
 - The source references appear in the on-page report and Excel workbook.
 - GitHub checkout test results: 51 passed and the same two existing failures
   (missing offline installer assets and stale preview-meta expectation).
+
+## ECMWF IFS source update
+
+Added explicit `ecmwf_ifs` retrieval through Open-Meteo's archive API, checked
+against the provider documentation and live precipitation responses at 34°N,
+72°E. Daily and hourly point retrieval and workbook downloads passed in Chromium.
+A complete daily 2017–2025 request produced nine eligible annual maxima and fitted
+IDF curves. Source metadata, record start, UTC interval, returned coordinates and
+the short-record/model-upgrade caveat are retained in reports and spreadsheets.
+District means are explicitly approximate request-mesh samples, not native-grid
+area integrals. Unit tests verify model selection, millimetre units, null handling,
+date bounds and district metadata. IFS shares Open-Meteo quotas with ERA5.

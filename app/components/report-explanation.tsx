@@ -24,6 +24,7 @@ export const REPORT_ACRONYMS = [
   ["HEC-HMS", "Hydrologic Engineering Center Hydrologic Modeling System", "A potential source of uploaded watershed flow-path geometry."],
   ["HTML / PDF", "Hypertext Markup Language / Portable Document Format", "Browser-readable / fixed-layout report downloads."],
   ["IDF", "Intensity–duration–frequency", "Relationship between rainfall intensity, storm duration and exceedance frequency."],
+  ["IFS", "Integrated Forecasting System", "ECMWF operational model archive used for hourly/daily precipitation from 2017; model upgrades and a short record require review."],
   ["IMERG", "Integrated Multi-satellitE Retrievals for GPM", "Satellite precipitation product; GPM means Global Precipitation Measurement."],
   ["KS", "Kolmogorov–Smirnov", "Distribution-distance diagnostic used with probability integral transforms."],
   ["LP3", "Log-Pearson Type III", "Distribution fitted to base-10 log annual maxima."],

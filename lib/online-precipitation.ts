@@ -2,6 +2,7 @@ import type { DailyRecord, HourlyRecord } from "./observed-idf";
 
 export type LiveOnlineSource =
   | "era5"
+  | "ifs"
   | "era5land"
   | "chirps"
   | "imerg"
@@ -47,6 +48,7 @@ export type OnlineExtractionMetadata = {
   extractedGridCells?: number;
   gridSamplingLimited?: boolean;
   providerJobs?: number;
+  sourceCaveat?: string;
   retrievedAt: string;
 };
 
@@ -87,6 +89,20 @@ export const LIVE_SOURCE_CONFIG = {
     openMeteoModel: "era5",
     latitudeResolution: 0.25,
     longitudeResolution: 0.25,
+  },
+  ifs: {
+    dataset: "ECMWF IFS operational analysis archive",
+    provider: "ECMWF · distributed by Open-Meteo",
+    retrievalService: "Open-Meteo Historical Weather API · explicit ecmwf_ifs model",
+    providerUrl: "https://open-meteo.com/en/docs/historical-weather-api",
+    nativeResolution: "Approximately 9 km global IFS archive; hourly precipitation",
+    firstDate: "2017-01-01",
+    supportedResolutions: ["daily", "hourly"] as const,
+    extractionFamily: "open-meteo" as const,
+    openMeteoModel: "ecmwf_ifs",
+    // Representative request mesh, not a claim that IFS has a regular 0.1° native grid.
+    latitudeResolution: 0.1,
+    longitudeResolution: 0.1,
   },
   era5land: {
     dataset: "ERA5-Land reanalysis",
@@ -149,6 +165,13 @@ export const LIVE_SOURCE_CONFIG = {
     longitudeResolution: 0.625,
   },
 } as const;
+
+export const IFS_PRECIPITATION_NOTICE =
+  "ECMWF IFS is an operational model-analysis archive from 2017, not a homogeneous long-term reanalysis or a rain gauge. Model upgrades can affect consistency; its short record limits rare-event inference. District extraction uses a representative 0.1° request mesh mapped to nearest IFS cells, not an exact native-grid area integral. This source shares Open-Meteo quotas with ERA5.";
+
+export function requirePrecipitationMillimetres(units: unknown) {
+  if (units !== "mm") throw new Error("The precipitation provider returned missing or unsupported units; expected mm. No values were fitted.");
+}
 
 export const ERA5_LAND_PRECIPITATION_NOTICE =
   "Open-Meteo's explicit ERA5-Land model does not provide precipitation values. Select ERA5 reanalysis for hourly or daily reanalysis rainfall. ERA5-Land remains suitable for supported land-surface variables such as temperature and soil moisture.";
@@ -332,7 +355,7 @@ export function era5DistrictGrid(
 }
 
 export function reanalysisDistrictGrid(
-  source: "era5" | "era5land",
+  source: "era5" | "era5land" | "ifs",
   geometry: OnlineGeometry,
   maximumRepresentativeCells = 48,
 ) {

@@ -4,6 +4,8 @@ import {
   ERA5_MULTI_LOCATION_BATCH_SIZE,
   ERA5_REQUEST_PACING_MS,
   LIVE_SOURCE_CONFIG,
+  IFS_PRECIPITATION_NOTICE,
+  requirePrecipitationMillimetres,
   climateServDate,
   climateServRecords,
   mergeDailyRecords,
@@ -73,6 +75,7 @@ function json(body: OnlineExtractionResponse, status = 200) {
 function isSource(value: unknown): value is LiveOnlineSource {
   return (
     value === "era5" ||
+    value === "ifs" ||
     value === "era5land" ||
     value === "chirps" ||
     value === "imerg" ||
@@ -97,7 +100,7 @@ function validateCommon(body: StartRequest | PollRequest) {
   if (resolution !== "daily" && resolution !== "hourly") throw new Error("Choose daily or hourly temporal resolution.");
   if (
     resolution === "hourly" &&
-    body.source !== "era5"
+    body.source !== "era5" && body.source !== "ifs"
   ) {
     throw new Error(
       body.source === "chirps"
@@ -253,6 +256,8 @@ async function pollClimateServ(body: PollRequest) {
 }
 
 type OpenMeteoPayload = {
+  hourly_units?: { precipitation?: string };
+  daily_units?: { precipitation_sum?: string };
   latitude?: number;
   longitude?: number;
   daily?: { time?: string[]; precipitation_sum?: Array<number | null> };
@@ -264,7 +269,7 @@ async function fetchOpenMeteoBatch(
   start: string,
   end: string,
   resolution: OnlineTemporalResolution,
-  model: "era5" | "era5_land",
+  model: "era5" | "era5_land" | "ecmwf_ifs",
 ) {
   const url = new URL(OPEN_METEO_ARCHIVE);
   url.searchParams.set("latitude", points.map((point) => point.latitude.toFixed(4)).join(","));
@@ -283,12 +288,13 @@ async function fetchOpenMeteoBatch(
     throw new Error(
       "The reanalysis provider returned an unexpected number of grid-cell series.",
     );
+  if (model === "ecmwf_ifs") for (const location of locations) requirePrecipitationMillimetres(resolution === "hourly" ? location.hourly_units?.precipitation : location.daily_units?.precipitation_sum);
   return locations;
 }
 
 async function extractOpenMeteoReanalysis(body: StartRequest) {
   if (!isGeometry(body.geometry) && body.mode === "district") throw new Error("The selected district polygon is not available.");
-  const source = body.source as "era5" | "era5land";
+  const source = body.source as "era5" | "era5land" | "ifs";
   const config = LIVE_SOURCE_CONFIG[source];
   const resolution = body.resolution ?? "daily";
   const districtGrid =
@@ -365,12 +371,13 @@ async function extractOpenMeteoReanalysis(body: StartRequest) {
         : []));
     }
   }
-  const sourceLabel = source === "era5" ? "ERA5" : "ERA5-Land";
+  const sourceLabel = source === "ifs" ? "ECMWF IFS archive" : source === "era5" ? "ERA5" : "ERA5-Land";
   const spatialMethod = body.mode === "point"
     ? `Nearest native ${sourceLabel} grid cell returned by the retrieval service; ${resolution} precipitation retained in UTC`
-    : `Overlap-weighted district ${resolution} series approximated from ${points.length} spatially representative ${sourceLabel} cells; polygon overlap fractions estimated on a 5×5 sub-grid per candidate cell`;
+    : source === "ifs" ? `Approximate district ${resolution} mean from ${points.length} representative 0.1° request-mesh points mapped to nearest IFS cells; request-mesh polygon overlap weights are approximate, not exact native-grid area weights` : `Overlap-weighted district ${resolution} series approximated from ${points.length} spatially representative ${sourceLabel} cells; polygon overlap fractions estimated on a 5×5 sub-grid per candidate cell`;
   const metadataBase = {
     source,
+    sourceCaveat: source === "ifs" ? IFS_PRECIPITATION_NOTICE : undefined,
     dataset:
       resolution === "hourly"
         ? `${sourceLabel} hourly precipitation`
@@ -573,7 +580,7 @@ export async function POST(request: Request) {
       return await pollClimateServ(body as PollRequest);
     }
     if (body.action !== "start") throw new Error("Unsupported extraction action.");
-    if (body.source === "era5" || body.source === "era5land")
+    if (body.source === "era5" || body.source === "era5land" || body.source === "ifs")
       return await extractOpenMeteoReanalysis(body as StartRequest);
     if (body.source === "power")
       return await extractNasaPower(body as StartRequest);

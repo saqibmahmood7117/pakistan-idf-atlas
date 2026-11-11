@@ -1143,6 +1143,10 @@ test("live online extraction endpoint validates source dates and point coordinat
   assert.equal(missingPoint.status, 400);
   assert.match((await missingPoint.json()).error, /latitude and longitude/);
 
+  const beforeIfs = await call({ action: "start", source: "ifs", resolution: "hourly", mode: "point", start: "2016-01-01", end: "2018-12-31", latitude: 34, longitude: 72 });
+  assert.equal(beforeIfs.status, 400);
+  assert.match((await beforeIfs.json()).error, /begins on 2017-01-01/);
+
   const beforeProduct = await call({ action: "start", source: "imerg", mode: "point", start: "1999-01-01", end: "2001-12-31", latitude: 34.015, longitude: 71.525 });
   assert.equal(beforeProduct.status, 400);
   assert.match((await beforeProduct.json()).error, /begins on 2000-06-01/);
