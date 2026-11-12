@@ -1,67 +1,65 @@
-# Selectable project districts: Pakistan and disputed Kashmir region
+# Permanent default map: user-supplied Districts.zip
 
-The active map now loads `public/data/project-districts.geojson`: 182 selectable
-features in one layer. It replaces the former generalized, non-selectable
-Kashmir overlay. Click a district on this map or choose its region and district
-in the same selectors used for the original Pakistan districts.
+The active map loads `/data/uploaded-districts.geojson` automatically on initial
+page load and when the default district layer is reloaded. The original archive
+is retained unchanged at `/data/Districts.zip`. This replaces the previous
+OCHA/geoBoundaries combination as the active default; earlier data files are
+retained only as historical assets, not mixed into this map.
 
-## Existing 160 districts
+## Source inspection
 
-The original OCHA COD-AB PAK ADM2 v01 (2022–2024) features are preserved exactly,
-including their geometry and identifiers. License: CC BY-IGO. Existing display
-aliases reconcile to their original district names. The combined catalogue
-retains all seven original province/territory groups.
+The archive supplied on 12 November 2026 contains Districts.shp, .shx, .dbf and
+.prj. It has 161 named records and nine PROVINCE/source groups. Properties include
+OBJECTID, PROVINCE, DISTRICT, ADMIN_UNIT and source shape metrics. Dataset year,
+author and license were not supplied; ZIP timestamps are not treated as a
+boundary-validity date. The source is not described as an official current map.
 
-## Added 22 source districts
+The PRJ declares WGS 84 geographic horizontal coordinates (EPSG:4326), plus
+vertical metadata. Only its horizontal coordinates are used for this 2D map.
+No horizontal reprojection, coordinate rounding, clipping or simplification
+is applied. The source contains historical FATA/agency groupings, cantonments,
+and one combined Kashmir unit. They are retained as source units rather than
+replaced by newer administrative subdivisions. Raw PROVINCE, DISTRICT and
+ADMIN_UNIT fields are preserved. Human-readable capitalization and neutral
+Kashmir display labels do not change the original attributes or geometry.
 
-Source: geoBoundaries gbOpen IND ADM2, `IND-ADM2-76128533`, represented year 2021,
-release `9469f09`, retrieved 12 November 2026.
+## Conversion and repairs
 
-- API: https://www.geoboundaries.org/api/current/gbOpen/IND/ADM2/
-- Full-resolution source (not the simplified download):
-  https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/IND/ADM2/geoBoundaries-IND-ADM2.geojson
-- Attribution: Pathways Data Pvt. Ltd.; lgdirectory.gov.in.
-- License: Open Data Commons Open Database License 1.0 (ODbL-1.0).
-- Groups: Jammu and Kashmir (disputed), 20 districts; Ladakh (disputed), 2 districts.
+Conversion used pyshp and Shapely; pyproj verified the horizontal CRS.
+Barkhan (record 12) and Batagram (record 64) contain self-intersecting rings.
+GEOS `make_valid` repairs their topology without simplification or clipping.
+Both remain polygons; relative planar-area changes are less than 1e-12.
+The source archive remains unchanged. The exact repair reasons and areas are
+recorded in `/data/uploaded-districts-manifest.json`.
 
-Geometry is copied **without simplification, clipping, intersection with Natural
-Earth, or manual redrawing**. Source `shapeID`, `shapeName`, source release,
-license and represented year are retained. Source/display spelling aliases
-include Badgam/Budgam, Baramula/Baramulla, Shupiyan/Shopian, Bandipore/Bandipora,
-and Punch/Poonch. `Poonch (Jammu and Kashmir)` is explicitly distinguished from
-the existing Azad Jammu & Kashmir Poonch district. These are display aliases,
-not geometry changes.
+An independent JavaScript shapefile decoder (`shpjs`, already used by the app)
+verified all original records and the coordinate arrays for the other 159
+units. Decoder numerical differences are below 1e-9 degrees; conversion itself
+copies the original horizontal coordinate values. Node tests verify this
+comparison against the retained ZIP.
 
-The source's large `DATA NOT AVAILABLE` area is not a named district and is
-excluded. No new districts or later administrative splits are invented. Some
-source extents, particularly Leh, relate to disputed claims rather than a
-precise depiction of actual control. The map labels the regions as disputed;
-it does not determine sovereignty or resolve competing claims. Full source
-resolution does not mean survey-grade positional accuracy or current validity.
+The original OBJECTID repeats for several records. Analysis identifiers therefore
+combine the archive checksum and record number, not OBJECTID alone. The complete
+SHA-256 is in the manifest, feature attributes and `lib/default-boundary.ts`.
+Changing the archive changes the boundary identity and invalidates corresponding
+spatial calibration keys. Reports and exports state `User-supplied Districts.zip`,
+the checksum-based version and that a represented year was not supplied.
 
-## Analysis integration
+## Application integration
 
-Added polygons are passed to the same district rainfall aggregation, historical
-and future CMIP6 extraction, ERA5 reference and district QDM paths. Coordinate
-coverage and the outlet reference extent include the added districts. Boundary
-identifiers and source versions enter spatial calibration keys and exports;
-new districts are not falsely attributed to OCHA. Retrieval remains subject to
-provider coverage, quotas and existing minimum-year/quality checks. Inclusion
-of a selectable boundary does not establish gauge validation of rainfall.
+- `lib/district-catalogue.ts` contains exactly the archive's 161 names, grouped
+  by its nine province/source classifications. Map clicks and the linked selectors
+  reconcile against these names.
+- The same polygons supply representative points, coordinate coverage checks,
+  district rainfall aggregation, historical/future extraction and bias-correction
+  identities. Provider coverage and existing minimum-data checks still apply.
+- The supplied combined Kashmir polygon is selectable as one source unit;
+  Srinagar and other subdivisions from the previous default are not invented.
+- The full vertex count is supported without argument-spread stack limits, and
+  SVG paths are cached between pan/zoom updates.
+- The optional 2017 tehsil layer is separate. Temporarily uploading another
+  boundary does not overwrite this bundled permanent default.
 
-The Pakistan-study IMD preset remains a published empirical duration method;
-its transfer to the additional districts is not a newly calibrated local model.
-The optional 2017 Pakistan tehsil layer has not been expanded to Kashmir.
-
-## Integrity checks
-
-All 22 added geometries were compared directly with the downloaded original
-source: serialized coordinate arrays are identical. The committed source
-fingerprints in `public/data/kashmir-district-source-fingerprints.json` retain
-SHA-256 geometry hashes. Tests check those fingerprints, unique catalogue/map
-matching for all 182 districts, preservation of the original 160 features, and
-source-aware provenance for every additional district.
-
-The combined collection preserves each component's separate attribution and
-license. The complete derived collection is distributed with the website and
-repository; no claim is made to relicense the original source components.
+Source classifications and disputed extents do not determine current
+administrative status, sovereignty or actual control. Inclusion of a polygon
+also does not establish gauge validation or local calibration of rainfall.

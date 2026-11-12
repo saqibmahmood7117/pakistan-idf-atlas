@@ -1,0 +1,42 @@
+{
+  "archive": "Districts.zip",
+  "archiveSha256": "aa28c0d420c3553d7f272a41b29116df37699ad74fc51bcbaee4631539334c7c",
+  "featureCount": 161,
+  "sourceCrsWkt": "GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433]],VERTCS[\"WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]],PARAMETER[\"Vertical_Shift\",0.0],PARAMETER[\"Direction\",1.0],UNIT[\"Meter\",1.0]]",
+  "horizontalEpsg": 4326,
+  "reprojected": false,
+  "simplified": false,
+  "clipped": false,
+  "year": "Not supplied",
+  "license": "Not supplied in archive",
+  "repairs": [
+    {
+      "source_record_number": 12,
+      "district": "BARKHAN",
+      "reason": "Ring Self-intersection[69.619193296 30.150618622]",
+      "method": "GEOS make_valid; no simplification or clipping",
+      "original_area_degrees_squared": 0.32650947774087863,
+      "repaired_area_degrees_squared": 0.32650947774087885,
+      "relative_area_change": 6.800556187874223e-16
+    },
+    {
+      "source_record_number": 64,
+      "district": "BATAGRAM",
+      "reason": "Ring Self-intersection[73.02344313 34.583552544]",
+      "method": "GEOS make_valid; no simplification or clipping",
+      "original_area_degrees_squared": 0.13352716791234157,
+      "repaired_area_degrees_squared": 0.1335271679123415,
+      "relative_area_change": 4.157292639330148e-16
+    }
+  ],
+  "sourceFields": [
+    "OBJECTID",
+    "PROVINCE",
+    "DISTRICT",
+    "Shape_Leng",
+    "ADMIN_UNIT",
+    "Shape_Le_1",
+    "Shape_Le_2",
+    "Shape_Area"
+  ]
+}

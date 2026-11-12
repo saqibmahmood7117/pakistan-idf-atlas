@@ -291,14 +291,13 @@ point, with return period and units. It does not interpolate extra rainfall
 values. Points and legend entries support keyboard focus/Enter/Space, and points
 support touch selection. Single-duration frequency plots also show cursor values.
 
-### Province-wise districts and selectable Kashmir districts
+### Permanent uploaded district map
 
-Linked region and district selectors cover 182 source polygons in one map:
-160 existing OCHA PAK ADM2 districts, plus 20 Jammu and Kashmir districts and
-two Ladakh districts from full-resolution geoBoundaries IND ADM2 (2021).
-Choose **Jammu and Kashmir (disputed)** or **Ladakh (disputed)**, then a district,
-or click the same selectable polygon on the map. Added geometries are copied
-unchanged from the full source, without simplifying or clipping them. District
-aggregation, extraction, correction identities and exports use their actual
-geometry and geoBoundaries provenance. Source versions, competing claims and
-coverage limitations remain explicit. See [boundary sources](docs/map-context-sources.md).
+The default map is the user-provided **Districts.zip**, converted to WGS 84
+GeoJSON and bundled with the website. It loads automatically on every visit,
+without needing another upload. The province/source-unit selectors, map clicks,
+representative points, extraction geometry and calibration provenance all use
+its 161 named units. This includes the source's combined Kashmir unit and
+historical FATA grouping; newer district subdivisions are not invented.
+The original ZIP, active GeoJSON and repair audit are downloadable from the map.
+See [source and conversion details](docs/map-context-sources.md).

@@ -1,4 +1,5 @@
 "use client";
+import { DEFAULT_DISTRICT_BOUNDARY } from "../lib/default-boundary";
 import DistrictSelector from "./components/district-selector";
 import { PAKISTAN_DISTRICT_GROUPS } from "../lib/district-catalogue";
 import { PAKISTAN_IMD } from "../lib/pakistan-duration-scaling";
@@ -2718,10 +2719,10 @@ function BoundaryMap({
     geo.features.forEach((f) => visit(f.geometry.coordinates));
     const xs = points.map((p) => p[0]),
       ys = points.map((p) => p[1]),
-      minX = Math.min(...xs),
-      maxX = Math.max(...xs),
-      minY = Math.min(...ys),
-      maxY = Math.max(...ys),
+      minX = xs.reduce((value,next)=>Math.min(value,next),Infinity),
+      maxX = xs.reduce((value,next)=>Math.max(value,next),-Infinity),
+      minY = ys.reduce((value,next)=>Math.min(value,next),Infinity),
+      maxY = ys.reduce((value,next)=>Math.max(value,next),-Infinity),
       project = (p: number[]) => [
         ((p[0] - minX) / (maxX - minX)) * 620 + 20,
         430 - ((p[1] - minY) / (maxY - minY)) * 400 + 20,
@@ -2764,12 +2765,12 @@ function BoundaryMap({
         cy = (top + bottom) / 2;
       focus = { x: cx - width / 2, y: cy - height / 2, width, height };
     }
-    return { path, marker, selectedKey, focus };
+    return { path, paths:geo.features.map(feature=>path(feature.geometry)), marker, selectedKey, focus };
   }, [geo, selected, point]);
   if (!geo || !mapData)
     return (
       <div className="boundary-empty">
-        <strong>Load the official district shapefile ZIP or GeoJSON</strong>
+        <strong>Reload the permanent map or upload a boundary ZIP / GeoJSON</strong>
         <p>
           The map is deliberately withheld until a versioned administrative
           layer is supplied.
@@ -2901,7 +2902,7 @@ function BoundaryMap({
           return (
             <path
               key={i}
-              d={mapData.path(f.geometry)}
+              d={mapData.paths[i]}
               className={matched ? "selected" : ""}
               aria-label={matched ? `Selected district: ${selected}` : n}
               onPointerEnter={() => {
@@ -2984,7 +2985,7 @@ export default function App() {
     [flowPathFileName, setFlowPathFileName] = useState(""),
     [designReturnPeriod, setDesignReturnPeriod] = useState(10),
     [message, setMessage] = useState("Upload an Excel or CSV file to begin."),
-    [boundary, setBoundary] = useState("OCHA COD-AB v01"),
+    [boundary, setBoundary] = useState<string>(DEFAULT_DISTRICT_BOUNDARY.version),
     [geo, setGeo] = useState<GeoCollection | null>(null),
     [projectDistrictGeo, setProjectDistrictGeo] =
       useState<GeoCollection | null>(null),
@@ -3988,11 +3989,11 @@ export default function App() {
       const config =
         level === "district"
           ? {
-              url: "/data/project-districts.geojson",
-              period: "OCHA 2022–2024; Kashmir source year 2021",
-              license: "CC BY-IGO + ODbL 1.0",
+              url: DEFAULT_DISTRICT_BOUNDARY.url,
+              period: "User map; represented year not supplied",
+              license: "Not supplied in uploaded archive",
               label: "District",
-              identity: "Project districts · OCHA PAK ADM2 + geoBoundaries Kashmir ADM2",
+              identity: DEFAULT_DISTRICT_BOUNDARY.version,
             }
           : {
               url: "/data/pakistan-tehsils-2017.geojson",
@@ -4017,7 +4018,7 @@ export default function App() {
       } catch (e) {
         setGeo(null);
         setGeoMessage(
-          `${e instanceof Error ? e.message : "Online boundary failed."} Use the official OCHA shapefile upload as the fallback.`,
+          `${e instanceof Error ? e.message : "Online boundary failed."} Use the boundary ZIP/GeoJSON upload as the fallback.`,
         );
       }
     },
@@ -4025,21 +4026,21 @@ export default function App() {
   );
   useEffect(() => {
     let active = true;
-    void fetchGeoCollection("/data/project-districts.geojson")
+    void fetchGeoCollection(DEFAULT_DISTRICT_BOUNDARY.url)
       .then((data) => {
         if (!active) return;
         setGeo(data);
         setProjectDistrictGeo(data);
-        setBoundary("Project districts · OCHA PAK ADM2 + geoBoundaries Kashmir ADM2");
+        setBoundary(DEFAULT_DISTRICT_BOUNDARY.version);
         setGeoMessage(
-          `${data.features.length} selectable district features loaded · OCHA 2022–2024 / CC BY-IGO; Kashmir districts source year 2021 / ODbL 1.0. District names are reconciled to the analysis dropdown without substituting historic parent districts.`,
+          `${data.features.length} selectable units loaded permanently from Districts.zip · WGS 84. Source grouping retained; two polygon topology repairs audited. Dataset year not supplied.`,
         );
         setMapSelection("Peshawar");
       })
       .catch((e) => {
         if (active)
           setGeoMessage(
-            `${e instanceof Error ? e.message : "Online boundary failed."} Use the official OCHA shapefile upload as the fallback.`,
+            `${e instanceof Error ? e.message : "Online boundary failed."} Use the boundary ZIP/GeoJSON upload as the fallback.`,
           );
       });
     return () => {
@@ -6579,7 +6580,7 @@ export default function App() {
             sourceTab === "observed"
               ? "not applicable"
               : (geo?.features.length ?? 0),
-          recommended_source: "OCHA COD-AB Pakistan",
+          recommended_source: DEFAULT_DISTRICT_BOUNDARY.source,
           matched_boundary_name:
             sourceTab === "observed"
               ? "not evaluated — district selection disabled"
@@ -8074,7 +8075,7 @@ export default function App() {
             className={boundaryLevel === "district" ? "active" : ""}
             onClick={() => loadOnlineBoundary("district", district)}
           >
-            Online districts
+            Reload permanent district map
           </button>
           <button
             className={boundaryLevel === "tehsil" ? "active" : ""}
@@ -8083,7 +8084,7 @@ export default function App() {
             Online tehsils
           </button>
           <button onClick={() => boundaryInput.current?.click()}>
-            Upload official SHP ZIP / GeoJSON
+            Upload temporary SHP ZIP / GeoJSON
           </button>
           <input
             className="hidden-input"
@@ -8097,7 +8098,7 @@ export default function App() {
           <article className="panel map-card">
             <div className="panel-head">
               <div>
-                <span>Versioned online geometry</span>
+                <span>Versioned boundary geometry</span>
                 <h2>
                   {boundaryLevel === "district" ? "District" : "Tehsil"}{" "}
                   polygons
@@ -8140,7 +8141,7 @@ export default function App() {
                 </button>
               )}
             </div>
-            <p className="report-note">Jammu and Kashmir and Ladakh districts are selectable in the same map and region selector. Their original 2021 geoBoundaries district geometries are retained without simplification or clipping. These are disputed source extents; depiction does not resolve sovereignty or control. No newer district splits are inferred.</p>
+            <p className="report-note">Permanent default: your Districts.zip, with 161 named source units and province/source groupings. The Kashmir area is the single combined unit supplied in your file. FATA and other historical classifications are retained, without inventing later district splits. Two self-intersecting rings were repaired for reliable polygon operations. <a href="/data/Districts.zip" download>Download original map ZIP</a> · <a href={DEFAULT_DISTRICT_BOUNDARY.url} download>Download active GeoJSON</a> · <a href="/data/uploaded-districts-manifest.json">Source and repair audit</a>.</p>
             <BoundaryMap
               key={boundary}
               geo={geo}
@@ -8222,16 +8223,8 @@ export default function App() {
                 <dd>{geo?.features.length ?? "Not loaded"}</dd>
               </div>
               <div>
-                <dt>District source</dt>
-                <dd>
-                  <a
-                    href="https://data.humdata.org/dataset/cod-ab-pak"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    OCHA Pakistan COD-AB
-                  </a>
-                </dd>
+                <dt>Boundary source</dt>
+                <dd>{matchedBoundaryIdentity?.source ?? boundary}</dd>
               </div>
             </dl>
             {!manualObservedLoaded &&
@@ -8245,11 +8238,7 @@ export default function App() {
                 </p>
               )}
             <p className="caution">
-              The default district layer contains 182 selectable districts: 160 OCHA COD-AB units plus 22 full-source Kashmir and Ladakh district polygons. The OCHA units are
-              represented through 27 September 2024; the downloadable package
-              was refreshed on 26 January 2026. The optional online tehsil layer
-              remains a 2017 geoBoundaries layer with 554 units. Record the
-              selected boundary identity in every official publication.
+              The permanent default is the user-supplied map, version {DEFAULT_DISTRICT_BOUNDARY.archiveSha256.slice(0,16)}. It contains {DEFAULT_DISTRICT_BOUNDARY.featureCount} source units. Source year and license were not provided in the archive. Unit boundaries and classifications are source-provided, not a claim of current administrative status or sovereignty. The optional 2017 tehsil layer remains a separate dataset.
             </p>
           </article>
         </div>
