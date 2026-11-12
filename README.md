@@ -275,3 +275,12 @@ divided by exactly 25.4. Excel exports include both units and converted interval
 bounds; the report includes a dual-unit table. For an inch/hr IDF equation, divide
 the metric scale coefficient by 25.4 and keep the exponents and duration unchanged.
 Internal fitting and depth calculations remain metric.
+
+### Interactive curves
+
+In each mm/hr or inch/hr chart, click a legend entry to hide/show a return-period
+curve. Click a curve to focus it; clear the selection or choose Show all curves
+to reset. Moving the pointer shows the nearest **plotted** duration/intensity
+point, with return period and units. It does not interpolate extra rainfall
+values. Points and legend entries support keyboard focus/Enter/Space, and points
+support touch selection. Single-duration frequency plots also show cursor values.

@@ -1685,6 +1685,11 @@ function IntensityChart({
   designReturnPeriod?: number;
   designIntensity?: number | null;
 }) {
+  const [hiddenPeriods, setHiddenPeriods] = useState<number[]>([]);
+  const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
+  const [hoverKey, setHoverKey] = useState<{period:number;duration:number} | null>(null);
+  const togglePeriod = (period:number) => {setHiddenPeriods(previous=>previous.includes(period)?previous.filter(value=>value!==period):[...previous,period]);setHoverKey(null);setSelectedPeriod(null);};
+  const hoverRow = rows.find(row=>row.returnPeriodYears===hoverKey?.period && row.durationMinutes===hoverKey?.duration && !hiddenPeriods.includes(row.returnPeriodYears));
   const supportedDurations = new Set(rows.filter(row => row.durationMinutes > 0 && row.durationMinutes <= 1440 && Number.isFinite(row.intensityMmHr)).map(row => row.durationMinutes));
   if (supportedDurations.size === 1) return <SingleDurationChart rows={rows} axis={axis} svgId={svgId} intensityUnit={intensityUnit} />;
   const w = 800,
@@ -1756,6 +1761,7 @@ function IntensityChart({
       concentrationAnchor === "end" ? concentrationX - 7 : concentrationX + 7;
   return (
     <div className="chartbox">
+      <div className="chart-interaction-controls"><p>Click a curve to select it. Click a legend entry to hide/show that curve. Move the cursor for the nearest plotted value; touch or focus a point for its value.</p><button onClick={()=>{setHiddenPeriods([]);setSelectedPeriod(null);setHoverKey(null);}}>Show all curves</button>{selectedPeriod !== null && <button onClick={()=>setSelectedPeriod(null)}>Clear curve selection</button>}</div>
       <div className="chart-title">
         <strong>Intensity–Duration–Frequency curves</strong>
         <span>{durations[0]} to {durations[durations.length-1]} minutes · 2- to 500-year return periods</span>
@@ -1763,7 +1769,16 @@ function IntensityChart({
       <svg
         id={svgId}
         viewBox={`0 0 ${w} ${h}`}
-        role="img"
+        onPointerLeave={()=>setHoverKey(null)}
+        onPointerMove={event=>{
+          const svg=event.currentTarget, matrix=svg.getScreenCTM();if(!matrix)return;
+          const point=svg.createSVGPoint();point.x=event.clientX;point.y=event.clientY;const cursor=point.matrixTransform(matrix.inverse());
+          if(cursor.x<m.l || cursor.x>m.l+plotW || cursor.y<m.t || cursor.y>m.t+plotH){setHoverKey(null);return;}
+          let nearest:ResultRow|undefined, distance=Infinity;
+          for(const item of series){if(hiddenPeriods.includes(item.T)||(selectedPeriod!==null && item.T!==selectedPeriod))continue;for(const row of item.rows){const delta=(x(row.durationMinutes)-cursor.x)**2+(y(row.intensityMmHr)-cursor.y)**2;if(delta<distance){distance=delta;nearest=row;}}}
+          if(nearest){const next={period:nearest.returnPeriodYears,duration:nearest.durationMinutes};setHoverKey(previous=>previous?.period===next.period && previous.duration===next.duration?previous:next);}
+        }}
+        role="group"
         aria-label={`IDF curves with duration on the x axis and rainfall intensity in ${intensityUnit} on the y axis`}
         style={{ fontFamily: "Arial, Helvetica, sans-serif" }}
       >
@@ -1880,7 +1895,7 @@ function IntensityChart({
         ))}
         <g clipPath={`url(#${clipId})`}>
           {series.map((s, i) => (
-            <g key={s.T}>
+            <g key={s.T} style={{display:hiddenPeriods.includes(s.T)?"none":undefined,cursor:"pointer"}} opacity={selectedPeriod === null || selectedPeriod === s.T ? 1 : .2} onClick={()=>{setSelectedPeriod(s.T);setHoverKey(null);}}>
               <polyline
                 points={s.rows
                   .map((r) => `${x(r.durationMinutes)},${y(r.intensityMmHr)}`)
@@ -1905,6 +1920,10 @@ function IntensityChart({
               {s.rows.map((r) => (
                 <circle
                   key={r.durationMinutes}
+                  onClick={event=>{event.stopPropagation();setSelectedPeriod(s.T);setHoverKey({period:s.T,duration:r.durationMinutes});}}
+                  tabIndex={0} role="button" aria-label={`${s.T}-year, ${r.durationMinutes} minutes, ${r.intensityMmHr.toFixed(4)} ${intensityUnit}`}
+                  onFocus={()=>setHoverKey({period:s.T,duration:r.durationMinutes})}
+                  onKeyDown={event=>{if(event.key==="Enter" || event.key===" "){event.preventDefault();setSelectedPeriod(s.T);setHoverKey({period:s.T,duration:r.durationMinutes});}}}
                   cx={x(r.durationMinutes)}
                   cy={y(r.intensityMmHr)}
                   r={s.T === 500 ? 4.5 : 4}
@@ -1917,6 +1936,7 @@ function IntensityChart({
               ))}
             </g>
           ))}
+          {hoverRow && <g pointerEvents="none"><line x1={x(hoverRow.durationMinutes)} x2={x(hoverRow.durationMinutes)} y1={m.t} y2={h-m.b} stroke="#173b5c" strokeDasharray="4 4"/><circle cx={x(hoverRow.durationMinutes)} cy={y(hoverRow.intensityMmHr)} r="7" fill="#fff" stroke="#173b5c" strokeWidth="3" /><rect x={m.l+8} y={m.t+7} width="290" height="28" rx="5" fill="white" stroke="#173b5c"/><text x={m.l+16} y={m.t+25} fontSize="10" fill="#173b5c">{`${hoverRow.returnPeriodYears}-year · ${hoverRow.durationMinutes} min · ${hoverRow.intensityMmHr.toFixed(4)} ${intensityUnit}`}</text></g>}
           {concentrationVisible && (
             <>
               <line
@@ -1980,7 +2000,7 @@ function IntensityChart({
               fontWeight="700"
               fill="#6f531f"
             >
-              {`${designReturnPeriod}-yr i=${designIntensity!.toFixed(2)} mm/h`}
+              {`${designReturnPeriod}-yr i=${designIntensity!.toFixed(2)} ${intensityUnit}`}
             </text>
           </g>
         )}
@@ -2021,7 +2041,8 @@ function IntensityChart({
             RETURN PERIOD
           </text>
           {series.map((s, i) => (
-            <g key={`legend-${s.T}`}>
+            <g key={`legend-${s.T}`} role="button" tabIndex={0} aria-label={`${hiddenPeriods.includes(s.T)?"Show":"Hide"} ${s.T}-year curve`} aria-pressed={!hiddenPeriods.includes(s.T)} style={{cursor:"pointer"}} opacity={hiddenPeriods.includes(s.T)?.3:1} onClick={()=>togglePeriod(s.T)} onKeyDown={event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();togglePeriod(s.T);}}}>
+              <rect x={w-m.r+10} y={m.t+27+i*20} width="93" height="20" fill="transparent"/>
               <line
                 x1={w - m.r + 17}
                 x2={w - m.r + 43}
@@ -2076,6 +2097,7 @@ function IntensityChart({
           IDF · intensity, not rainfall depth
         </text>
       </svg>
+      <div className="chart-hover-readout" role="status" aria-live="polite" style={{padding:12,background:"#edf7f8",borderRadius:8,minHeight:46}}>{hoverRow ? <strong>{hoverRow.returnPeriodYears}-year curve · {hoverRow.durationMinutes} minutes · {hoverRow.intensityMmHr.toFixed(4)} {intensityUnit}{hoverRow.derived ? " · derived duration" : ""}</strong> : "Move the cursor within the plot to inspect the nearest plotted value."}</div>
     </div>
   );
 }
