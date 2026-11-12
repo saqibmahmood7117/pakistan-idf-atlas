@@ -1,4 +1,4 @@
-/** Verified OCHA PAK ADM2 v01 (2022–2024), 160 districts; display aliases preserve existing selections. */
+/** Project catalogue: 160 OCHA PAK ADM2 + 22 unmodified geoBoundaries IND ADM2 disputed-area districts. */
 export const PAKISTAN_DISTRICT_GROUPS: Record<string, readonly string[]> = {
   "Azad Jammu & Kashmir": [
     "Bagh",
@@ -173,5 +173,31 @@ export const PAKISTAN_DISTRICT_GROUPS: Record<string, readonly string[]> = {
     "Tharparkar",
     "Thatta",
     "Umerkot"
+  ],
+  "Jammu and Kashmir (disputed)": [
+    "Anantnag",
+    "Bandipora",
+    "Baramulla",
+    "Budgam",
+    "Doda",
+    "Ganderbal",
+    "Jammu",
+    "Kathua",
+    "Kishtwar",
+    "Kulgam",
+    "Kupwara",
+    "Poonch (Jammu and Kashmir)",
+    "Pulwama",
+    "Rajouri",
+    "Ramban",
+    "Reasi",
+    "Samba",
+    "Shopian",
+    "Srinagar",
+    "Udhampur"
+  ],
+  "Ladakh (disputed)": [
+    "Kargil",
+    "Leh (Ladakh)"
   ]
 };

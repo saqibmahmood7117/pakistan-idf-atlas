@@ -33,11 +33,11 @@ export async function nativeArchiveRequest(p:Record<string,unknown>){
   url.searchParams.set('var','pr');url.searchParams.set('time_start',`${year}-01-01T00:00:00Z`);url.searchParams.set('time_end',`${year}-12-31T23:59:59Z`);url.searchParams.set('accept','netCDF');url.searchParams.set('addLatLon','true');
   let geometry:OnlineGeometry|undefined;
   if(mode==='point'){
-   const lat=Number(p.latitude),lon=Number(p.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat<23||lat>38||lon<60||lon>79)throw Error('Native point extraction requires Pakistan coordinates.');
+   const lat=Number(p.latitude),lon=Number(p.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat<23||lat>38||lon<60||lon>80.5)throw Error('Native point extraction requires coordinates in the project coverage.');
    url.searchParams.set('latitude',lat.toFixed(5));url.searchParams.set('longitude',lon.toFixed(5));
   }else{
    geometry=p.geometry as OnlineGeometry;if(!geometry||!['Polygon','MultiPolygon'].includes(geometry.type)||!Array.isArray(geometry.coordinates))throw Error('District native extraction requires the selected polygon.');
-   const box=cmip6GeometryBounds(geometry);if(box.south<23||box.north>39||box.west<60||box.east>80)throw Error('The selected district must be inside Pakistan.');
+   const box=cmip6GeometryBounds(geometry);if(box.south<23||box.north>39||box.west<60||box.east>80.5)throw Error('The selected district must be inside the project coverage.');
    url.searchParams.set('north',String(box.north+2));url.searchParams.set('south',String(box.south-2));url.searchParams.set('east',String(box.east+2));url.searchParams.set('west',String(box.west-2));url.searchParams.set('horizStride','1');
   }
   const response=await get(url.toString(),150000);if(Number(response.headers.get('content-length'))>24000000)throw Error('The native district subset exceeds the interactive limit.');

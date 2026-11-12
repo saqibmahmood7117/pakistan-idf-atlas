@@ -1,0 +1,117 @@
+{
+  "sourceBoundaryId": "IND-ADM2-76128533",
+  "sourceRelease": "9469f09",
+  "geometryModified": false,
+  "features": [
+    {
+      "name": "Anantnag",
+      "id": "76128533B6393836306469",
+      "geometrySha256": "48f1fb4df6f592f0f82f2d60c3a0081627eb8339f592c44b5fd22aee48acabfb"
+    },
+    {
+      "name": "Baramulla",
+      "id": "76128533B15567489974292",
+      "geometrySha256": "d840d60feac5653b331d2e3dd0c5617705c983ade6c32ae154ba479403a9ba1e"
+    },
+    {
+      "name": "Kulgam",
+      "id": "76128533B87327155385261",
+      "geometrySha256": "5ba408b50bd85526c57c4393425451daecf4591b899003ae1b0308e60339f889"
+    },
+    {
+      "name": "Shopian",
+      "id": "76128533B37825396764028",
+      "geometrySha256": "5e5d646cb4a50eff3dece01b7ed4b8d77a0692f06e7e2b91d5a88cd890b57965"
+    },
+    {
+      "name": "Reasi",
+      "id": "76128533B50784044604286",
+      "geometrySha256": "ad31361f205a80e4cb2c8d3fd7768a8d855aa11ed3d9e1c1181b57d908a3fa7e"
+    },
+    {
+      "name": "Rajouri",
+      "id": "76128533B45655211862788",
+      "geometrySha256": "b8fc40322174cb947c5a2bb0dc75746625efe247bdeff24f194d9ee387e8446b"
+    },
+    {
+      "name": "Jammu",
+      "id": "76128533B3371867518692",
+      "geometrySha256": "aabbfa94d3889027e8a5adb7225fb33b8feae404c292f626dbf34321c0950d9f"
+    },
+    {
+      "name": "Leh (Ladakh)",
+      "id": "76128533B57183548666997",
+      "geometrySha256": "232d6b3586fb6ca89064e12e85f14d2e85255ff7e681c68d7db17e498ba16417"
+    },
+    {
+      "name": "Srinagar",
+      "id": "76128533B32249045995424",
+      "geometrySha256": "cd64b144e664f9a163ae16d10fc351bcb276402ffe027d77a303693e6d1f4bcc"
+    },
+    {
+      "name": "Doda",
+      "id": "76128533B48708628358161",
+      "geometrySha256": "534d83f3c8daf6cb5113e0fa67a2efd7da1a823577f0b4dda577418b882ba2e5"
+    },
+    {
+      "name": "Pulwama",
+      "id": "76128533B74958462315105",
+      "geometrySha256": "13aa09258dcd7ba43d7c15ef54355691e01274d24b568dd787d68e0aa0083480"
+    },
+    {
+      "name": "Ramban",
+      "id": "76128533B92985585225784",
+      "geometrySha256": "b2d868ff207e45d9e26b2cdfcd7185aad5d37c4bc2206144355b56f1fd68d4c0"
+    },
+    {
+      "name": "Ganderbal",
+      "id": "76128533B20504715877560",
+      "geometrySha256": "a4e76c868e0dc144af1fc32ebdd409c9455de285c2edae8759184abb6b957b82"
+    },
+    {
+      "name": "Udhampur",
+      "id": "76128533B31127900859310",
+      "geometrySha256": "7a55e8bbb93ce8639451a28ab4afe495e9ab9db1bab9fb004ccbdd955d651c21"
+    },
+    {
+      "name": "Budgam",
+      "id": "76128533B88214376170788",
+      "geometrySha256": "04126f9a3de35bc0dfa056f3247a3e9c414be1fa4c08b318721e9752706da03d"
+    },
+    {
+      "name": "Poonch (Jammu and Kashmir)",
+      "id": "76128533B32998994032811",
+      "geometrySha256": "f510c56456bef3ee208e2fa45f541e0d0708d7ad8bd2177897ad2bbff0f17dae"
+    },
+    {
+      "name": "Kupwara",
+      "id": "76128533B68195849750399",
+      "geometrySha256": "fe8c3390b02101e12376cacb6fa86d75efe5fc0c1250d089dfc5f5c232ec4879"
+    },
+    {
+      "name": "Samba",
+      "id": "76128533B49429513424897",
+      "geometrySha256": "583282ebed3d2196fb997ad3dcc5f09b4ef6ed71ca918c2445d6d32133004886"
+    },
+    {
+      "name": "Bandipora",
+      "id": "76128533B41744580856133",
+      "geometrySha256": "a3f37b80348e93b21d39dd18fe8679b27375b180536bc5b7a93938e62b1c3458"
+    },
+    {
+      "name": "Kathua",
+      "id": "76128533B79652855441225",
+      "geometrySha256": "ce4042fbe2ccd3970e083d83612d8e7630e5c7efd2fc4eb8df82c8c67e345668"
+    },
+    {
+      "name": "Kargil",
+      "id": "76128533B47664895117076",
+      "geometrySha256": "25d4503fc1f52c90d58b54d99e0174a790804a46fc477d104d64c80a61a89fef"
+    },
+    {
+      "name": "Kishtwar",
+      "id": "76128533B20458430922604",
+      "geometrySha256": "4f86f7a9332816eab0b077d2703128fddc65ea0f1ff384b7e211fd61b6b86cda"
+    }
+  ]
+}

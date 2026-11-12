@@ -291,12 +291,14 @@ point, with return period and units. It does not interpolate extra rainfall
 values. Points and legend entries support keyboard focus/Enter/Space, and points
 support touch selection. Single-duration frequency plots also show cursor values.
 
-### Province-wise districts and Kashmir map context
+### Province-wise districts and selectable Kashmir districts
 
-Location selectors use linked province/territory and district fields, derived
-from all 160 verified OCHA ADM2 boundaries. Changing province selects its first
-district; choosing a district on the map synchronizes its province automatically.
-Indian-administered Jammu and Kashmir and Ladakh are shown as a separate,
-disputed, generalized context overlay. The overlay is not an analysis boundary
-or an addition to the rainfall district catalogue. See
-[map sources and processing](docs/map-context-sources.md).
+Linked region and district selectors cover 182 source polygons in one map:
+160 existing OCHA PAK ADM2 districts, plus 20 Jammu and Kashmir districts and
+two Ladakh districts from full-resolution geoBoundaries IND ADM2 (2021).
+Choose **Jammu and Kashmir (disputed)** or **Ladakh (disputed)**, then a district,
+or click the same selectable polygon on the map. Added geometries are copied
+unchanged from the full source, without simplifying or clipping them. District
+aggregation, extraction, correction identities and exports use their actual
+geometry and geoBoundaries provenance. Source versions, competing claims and
+coverage limitations remain explicit. See [boundary sources](docs/map-context-sources.md).

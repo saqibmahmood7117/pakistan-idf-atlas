@@ -89,6 +89,7 @@ import {
 } from "../lib/online-precipitation";
 import {
   boundaryFeatureName,
+  boundaryFeatureIdentity,
   normalizeBoundaryName,
 } from "../lib/district-boundaries";
 import {
@@ -2289,11 +2290,11 @@ function representativePointForGeometry(geometry: GeoGeometry) {
   return first ? { lon: first[0], lat: first[1] } : null;
 }
 
-const insidePakistanExtent = (latitude: number, longitude: number) =>
+const insideProjectExtent = (latitude: number, longitude: number) =>
   latitude >= 23.3 &&
   latitude <= 37.2 &&
   longitude >= 60.7 &&
-  longitude <= 77.3;
+  longitude <= 80.5;
 
 type MapView = { x: number; y: number; width: number; height: number };
 
@@ -2319,7 +2320,7 @@ function OutletSelectionMap({
   const [view, setView] = useState<MapView>(fullView),
     [dragging, setDragging] = useState(false);
   const west = 60.7,
-    east = 77.3,
+    east = 80.5,
     south = 23.3,
     north = 37.2,
     mapLeft = 28,
@@ -2670,7 +2671,6 @@ function GoogleMapsOutlet({
 
 function BoundaryMap({
   geo,
-  contextGeo = null,
   selected,
   onSelect,
   onHover,
@@ -2680,7 +2680,6 @@ function BoundaryMap({
   point,
 }: {
   geo: GeoCollection | null;
-  contextGeo?: GeoCollection | null;
   selected: string;
   onSelect: (v: string) => void;
   onHover: (v: string) => void;
@@ -2717,7 +2716,6 @@ function BoundaryMap({
       value.forEach((part) => visit(part, target));
     };
     geo.features.forEach((f) => visit(f.geometry.coordinates));
-    contextGeo?.features.forEach(f=>visit(f.geometry.coordinates));
     const xs = points.map((p) => p[0]),
       ys = points.map((p) => p[1]),
       minX = Math.min(...xs),
@@ -2767,7 +2765,7 @@ function BoundaryMap({
       focus = { x: cx - width / 2, y: cy - height / 2, width, height };
     }
     return { path, marker, selectedKey, focus };
-  }, [geo, contextGeo, selected, point]);
+  }, [geo, selected, point]);
   if (!geo || !mapData)
     return (
       <div className="boundary-empty">
@@ -2897,7 +2895,6 @@ function BoundaryMap({
           if (!dragRef.current) setHovered("");
         }}
       >
-        {contextGeo?.features.map((feature,index)=><path key={`kashmir-context-${index}`} d={mapData.path(feature.geometry)} onPointerEnter={()=>setHovered("")} style={{fill:"#eadcbc",stroke:"#94621c",strokeWidth:1.2,strokeDasharray:"5 3",cursor:"help"}} fillRule="evenodd" aria-label={`${feature.properties.name}: Indian-administered, disputed, context only`}><title>{`${feature.properties.name} · Indian-administered · disputed territory · generalized context; not selectable for rainfall extraction`}</title></path>)}
         {geo.features.map((f, i) => {
           const n = boundaryName(f),
             matched = normalizeBoundaryName(n) === mapData.selectedKey;
@@ -2989,7 +2986,7 @@ export default function App() {
     [message, setMessage] = useState("Upload an Excel or CSV file to begin."),
     [boundary, setBoundary] = useState("OCHA COD-AB v01"),
     [geo, setGeo] = useState<GeoCollection | null>(null),
-    [pakistanDistrictGeo, setPakistanDistrictGeo] =
+    [projectDistrictGeo, setProjectDistrictGeo] =
       useState<GeoCollection | null>(null),
     [geoMessage, setGeoMessage] = useState(
       "No boundary loaded; results retain the manually selected district.",
@@ -3106,10 +3103,6 @@ export default function App() {
   const dailyQc = useMemo(() => assess(filtered), [filtered]),
     hourlyQc = useMemo(() => assessHourly(hourlyFiltered), [hourlyFiltered]);
   const cmipScalingExponent = cmipScalingMethod === "pakistan-imd" ? PAKISTAN_IMD.alpha : exponent;
-  const [kashmirContext,setKashmirContext] = useState<GeoCollection|null>(null);
-  const [showKashmirContext,setShowKashmirContext] = useState(true);
-  const [kashmirContextMessage,setKashmirContextMessage] = useState("Loading Kashmir map context…");
-  useEffect(()=>{let active=true;fetchGeoCollection("/data/kashmir-context.geojson").then(data=>{if(active){setKashmirContext(data);setKashmirContextMessage("Indian-administered Jammu and Kashmir and Ladakh · disputed; generalized map context, not rainfall-analysis districts.");}}).catch(()=>{if(active)setKashmirContextMessage("Kashmir context layer could not be loaded.");});return()=>{active=false;};},[]);
   const activeObservedQc = observedResolution === "daily" ? dailyQc : hourlyQc;
   const manualObservedLoaded =
     sourceTab === "observed" &&
@@ -3168,15 +3161,15 @@ export default function App() {
       watershedOutletLongitude.trim() !== "" &&
       Number.isFinite(watershedOutletLatitudeNumber) &&
       Number.isFinite(watershedOutletLongitudeNumber) &&
-      insidePakistanExtent(
+      insideProjectExtent(
         watershedOutletLatitudeNumber,
         watershedOutletLongitudeNumber,
       ),
-    coordinateInsidePakistan =
+    coordinateInsideCoverage =
       coordinateValid &&
-      insidePakistanExtent(coordinateLat, coordinateLon) &&
-      (pakistanDistrictGeo
-        ? pakistanDistrictGeo.features.some((feature) =>
+      insideProjectExtent(coordinateLat, coordinateLon) &&
+      (projectDistrictGeo
+        ? projectDistrictGeo.features.some((feature) =>
             pointInGeometry(
               coordinateLon,
               coordinateLat,
@@ -3184,7 +3177,7 @@ export default function App() {
             ),
           )
         : true),
-    cmipCoordinateReady = coordinateValid && coordinateInsidePakistan;
+    cmipCoordinateReady = coordinateValid && coordinateInsideCoverage;
   const latestCompleteYear = new Date().getUTCFullYear() - 1,
     onlineRequestedStart =
       onlineStart ||
@@ -3313,14 +3306,7 @@ export default function App() {
   );
   const matchedBoundaryIdentity = useMemo(() => {
     if (!matchedBoundaryFeature) return null;
-    const properties = matchedBoundaryFeature.properties;
-    return {
-      name: boundaryName(matchedBoundaryFeature),
-      code: String(properties.adm2_pcode ?? properties.ADM2_PCODE ?? "not reported"),
-      source: "OCHA COD-AB Pakistan ADM2",
-      version: String(properties.cod_version ?? "V_01"),
-      validOn: String(properties.valid_on ?? "2022-09-09"),
-    };
+    return boundaryFeatureIdentity(matchedBoundaryFeature.properties);
   }, [matchedBoundaryFeature]);
   const currentCmipSpatialKey = cmipBiasSpatialKey({mode:spatialMode,latitude:coordinateLat,longitude:coordinateLon,district,geometry:matchedBoundaryFeature?.geometry,boundaryCode:matchedBoundaryIdentity?.code,boundaryVersion:matchedBoundaryIdentity?.version});
   const cmipMidpoint = CMIP6_PERIODS[cmipPeriod].midpoint,
@@ -3850,8 +3836,8 @@ export default function App() {
       ? `The verified ${district} polygon is used as the requested extraction boundary.`
       : !coordinateValid
         ? "Enter valid latitude (−90 to 90) and longitude (−180 to 180)."
-        : sourceTab === "cmip6" && !coordinateInsidePakistan
-          ? "The point is outside Pakistan's verified district boundaries. Choose a Pakistan district representative point or enter coordinates inside Pakistan."
+        : sourceTab === "cmip6" && !coordinateInsideCoverage
+          ? "The point is outside the project's selectable district boundaries. Choose a district representative point or enter coordinates inside the selected project region."
         : coordinateInsideDistrict === null
           ? "Coordinates are valid; load an exact district polygon to test district membership."
           : coordinateInsideDistrict
@@ -4002,11 +3988,11 @@ export default function App() {
       const config =
         level === "district"
           ? {
-              url: "/data/pakistan-districts-ocha-2024.geojson",
-              period: "09 Sep 2022–27 Sep 2024",
-              license: "CC BY-IGO",
+              url: "/data/project-districts.geojson",
+              period: "OCHA 2022–2024; Kashmir source year 2021",
+              license: "CC BY-IGO + ODbL 1.0",
               label: "District",
-              identity: "OCHA COD-AB PAK ADM2 · v01",
+              identity: "Project districts · OCHA PAK ADM2 + geoBoundaries Kashmir ADM2",
             }
           : {
               url: "/data/pakistan-tehsils-2017.geojson",
@@ -4021,7 +4007,7 @@ export default function App() {
       try {
         const data = await fetchGeoCollection(config.url);
         setGeo(data);
-        if (level === "district") setPakistanDistrictGeo(data);
+        if (level === "district") setProjectDistrictGeo(data);
         setBoundary(config.identity);
         setGeoMessage(
           `${data.features.length} ${config.label.toLowerCase()} features loaded online · ${config.period} · ${config.license}. District names are reconciled to the analysis dropdown without substituting historic parent districts.`,
@@ -4039,14 +4025,14 @@ export default function App() {
   );
   useEffect(() => {
     let active = true;
-    void fetchGeoCollection("/data/pakistan-districts-ocha-2024.geojson")
+    void fetchGeoCollection("/data/project-districts.geojson")
       .then((data) => {
         if (!active) return;
         setGeo(data);
-        setPakistanDistrictGeo(data);
-        setBoundary("OCHA COD-AB PAK ADM2 · v01");
+        setProjectDistrictGeo(data);
+        setBoundary("Project districts · OCHA PAK ADM2 + geoBoundaries Kashmir ADM2");
         setGeoMessage(
-          `${data.features.length} district features loaded online · 09 Sep 2022–27 Sep 2024 · CC BY-IGO. District names are reconciled to the analysis dropdown without substituting historic parent districts.`,
+          `${data.features.length} selectable district features loaded · OCHA 2022–2024 / CC BY-IGO; Kashmir districts source year 2021 / ODbL 1.0. District names are reconciled to the analysis dropdown without substituting historic parent districts.`,
         );
         setMapSelection("Peshawar");
       })
@@ -4500,7 +4486,7 @@ export default function App() {
     }
     if (spatialMode === "point" && !cmipCoordinateReady) {
       setCmipDataMessage(
-        "Enter latitude and longitude inside Pakistan before point GCM extraction.",
+        "Enter latitude and longitude inside the project coverage before point GCM extraction.",
       );
       return;
     }
@@ -4743,7 +4729,7 @@ export default function App() {
       return;
     }
     if (spatialMode === "point" && !cmipCoordinateReady) {
-      setCmipHistoricalMessage("Point correction requires coordinates inside Pakistan.");
+      setCmipHistoricalMessage("Point correction requires coordinates inside the project coverage.");
       return;
     }
     if (spatialMode === "district" && !matchedBoundaryFeature) {
@@ -7608,7 +7594,7 @@ export default function App() {
               </div>
             </div>
             <section className="gcm-validation-card" aria-label="Reference validation and multi-model uncertainty">
-              <div><span>Pakistan-wide engineering workflow</span><h3>Daily QDM bias correction and multi-model uncertainty</h3><p>Choose a verified district polygon or point inside Pakistan. District mode aggregates historical GCM, future GCM and ERA5 separately over the same polygon before correcting the district daily series. ERA5 uses a documented approximate representative-cell district mean; this is not cell-wise correction or gauge validation. Point mode can use an adequate nearby gauge or ERA5. At least 20 common eligible baseline years within 1985–2014 are required. District correction directly supports 24-hour results. Independent sub-daily curves require native sub-daily model and reference data; daily-to-duration scaling and point-gauge ratios are not used.</p></div>
+              <div><span>Project-wide engineering workflow</span><h3>Daily QDM bias correction and multi-model uncertainty</h3><p>Choose a verified district polygon or point inside the project coverage. District mode aggregates historical GCM, future GCM and ERA5 separately over the same polygon before correcting the district daily series. ERA5 uses a documented approximate representative-cell district mean; this is not cell-wise correction or gauge validation. Point mode can use an adequate nearby gauge or ERA5. At least 20 common eligible baseline years within 1985–2014 are required. District correction directly supports 24-hour results. Shorter durations, when enabled, are derived using the selected daily duration-scaling method after daily correction; they are not independently corrected sub-daily observations.</p></div>
               <label>
                 Bias-correction reference
                 <select value={cmipBiasReference} onChange={event => { setCmipBiasReference(event.target.value as Cmip6BiasReference); setCmipHistoricalRaw([]); setCmipEra5ReferenceRaw([]); setCmipHistoricalLoadedKey(""); setCmipHistoricalMessage("Reference changed. Retrieve the historical GCM and selected reference again before applying correction."); }} disabled={cmipBusy}>
@@ -7624,7 +7610,7 @@ export default function App() {
                 <button type="button" disabled={!cmipActiveEnsembleModels.length} onClick={() => setCmipEnsembleModels(previous => previous.filter(item => item.selectionKey !== currentCmipEnsembleKey))}>Clear this location ensemble</button>
               </div>
               <div className="gcm-evidence-grid">
-                <div><span>Pakistan location</span><strong>{spatialMode === "district" ? matchedBoundaryFeature ? `${district} district spatial series · ${matchedBoundaryIdentity?.code}` : "Load the selected district polygon" : cmipCoordinateReady ? `Verified project grid cell · ${coordinateLat.toFixed(5)}, ${coordinateLon.toFixed(5)}` : "Point coordinates inside Pakistan required"}</strong></div>
+                <div><span>Project location</span><strong>{spatialMode === "district" ? matchedBoundaryFeature ? `${district} district spatial series · ${matchedBoundaryIdentity?.code}` : "Load the selected district polygon" : cmipCoordinateReady ? `Verified project grid cell · ${coordinateLat.toFixed(5)}, ${coordinateLon.toFixed(5)}` : "Point coordinates inside the project coverage required"}</strong></div>
                 <div><span>Historical overlap</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.historicalPeriod : `${cmipMatchedBaseline.years.length} common years · ${cmipHistoricalQc.eligibleYears || 0} GCM years · ${cmipReferenceAms.length} ${cmipReferenceLabel} years`}</strong></div>
                 <div><span>Daily bias correction</span><strong>{cmipImportedReady ? `Precomputed and validated in workbook · ${cmipReferenceLabel}` : cmipQdmReady ? `12 monthly QDM groups · ${useEra5BiasReference ? "reanalysis-corrected" : "gauge-corrected"}` : `Pending historical + ${cmipReferenceLabel} comparison`}</strong></div>
                 <div><span>Sub-daily basis</span><strong>{cmipDailyScaling ? `Daily duration scaling · α=${cmipScalingExponent} · derived sub-daily curves` : "Daily product · 24-hour results only"}</strong></div>
@@ -7900,7 +7886,7 @@ export default function App() {
             </div>
           )}
           <p
-            className={`coordinate-status ${spatialMode === "point" && coordinateValid && (!coordinateInsidePakistan || coordinateInsideDistrict === false) && !manualObservedLoaded ? "warning" : ""}`}
+            className={`coordinate-status ${spatialMode === "point" && coordinateValid && (!coordinateInsideCoverage || coordinateInsideDistrict === false) && !manualObservedLoaded ? "warning" : ""}`}
           >
             <strong>{spatialLabel}</strong>
             <span>{coordinateStatus}</span>
@@ -8154,9 +8140,8 @@ export default function App() {
                 </button>
               )}
             </div>
-            <div className="kashmir-map-context"><label><input type="checkbox" checked={showKashmirContext} onChange={event=>setShowKashmirContext(event.target.checked)}/> Show Indian-administered Kashmir and Ladakh (disputed)</label><p>{kashmirContextMessage}</p><small>Dashed amber areas are map context. Boundary depiction does not imply a determination of sovereignty. Sources: geoBoundaries, Natural Earth and OCHA.</small></div>
+            <p className="report-note">Jammu and Kashmir and Ladakh districts are selectable in the same map and region selector. Their original 2021 geoBoundaries district geometries are retained without simplification or clipping. These are disputed source extents; depiction does not resolve sovereignty or control. No newer district splits are inferred.</p>
             <BoundaryMap
-              contextGeo={showKashmirContext?kashmirContext:null}
               key={boundary}
               geo={geo}
               selected={boundaryLevel === "district" ? district : mapSelection}
@@ -8254,13 +8239,13 @@ export default function App() {
               !matchedBoundaryName && (
                 <p className="boundary-warning">
                   <strong>{district}</strong> is not represented by a separate
-                  polygon in the loaded COD-AB edition. Upload a newer verified
-                  OCHA/PBS boundary to display it without substituting a parent
+                  polygon in the loaded project boundary edition. Upload a newer verified
+                  administrative boundary to display it without substituting a parent
                   district.
                 </p>
               )}
             <p className="caution">
-              The default district layer contains 160 OCHA COD-AB units
+              The default district layer contains 182 selectable districts: 160 OCHA COD-AB units plus 22 full-source Kashmir and Ladakh district polygons. The OCHA units are
               represented through 27 September 2024; the downloadable package
               was refreshed on 26 January 2026. The optional online tehsil layer
               remains a 2017 geoBoundaries layer with 554 units. Record the
@@ -8759,7 +8744,7 @@ export default function App() {
                     flowGeometryMode === "mghydro" && (
                       <div className="watershed-auto-panel">
                         <GoogleMapsOutlet
-                          geo={pakistanDistrictGeo ?? geo}
+                          geo={projectDistrictGeo ?? geo}
                           latitude={
                             watershedOutletPointValid
                               ? watershedOutletLatitudeNumber
@@ -10322,7 +10307,7 @@ export default function App() {
               </ol>
               <p className="report-note">
                 <strong>Current implementation.</strong> The complete 35-entry
-                NASA v2 catalogue is selectable for any verified Pakistan
+                NASA v2 catalogue is selectable for any verified project
                 point. The established 10-model Pakistan set is highlighted;
                 each model is retrieved, daily-QDM corrected and fitted
                 separately. Stored models are isolated by coordinates, SSP,

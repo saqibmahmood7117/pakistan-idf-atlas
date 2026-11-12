@@ -45,3 +45,14 @@ export function boundaryFeatureName(properties: Record<string, unknown>) {
       "Unnamed",
   );
 }
+
+/** Source-aware provenance for mixed-source district selection and exports. */
+export function boundaryFeatureIdentity(properties: Record<string, unknown>) {
+  return {
+    name: boundaryFeatureName(properties),
+    code: String(properties.adm2_pcode ?? properties.ADM2_PCODE ?? properties.shapeID ?? 'not supplied'),
+    source: String(properties.boundary_source ?? (String(properties.adm2_pcode ?? '').startsWith('PK') ? 'OCHA COD-AB Pakistan ADM2' : 'Administrative boundary; source not supplied')),
+    version: String(properties.boundary_version ?? properties.cod_version ?? 'not supplied'),
+    validOn: String(properties.valid_on ?? properties.boundary_year ?? 'not supplied'),
+  };
+}
