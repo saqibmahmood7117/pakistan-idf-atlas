@@ -1,4 +1,6 @@
 "use client";
+import DistrictSelector from "./components/district-selector";
+import { PAKISTAN_DISTRICT_GROUPS } from "../lib/district-catalogue";
 import { PAKISTAN_IMD } from "../lib/pakistan-duration-scaling";
 import { mmHrToInchHr } from "../lib/rainfall-units";
 import { ReportAcronyms, ReportEquationGuide, ReportSteps } from "./components/report-explanation";
@@ -10,7 +12,6 @@ import PowerIntensityCalculator from "./components/power-intensity-calculator";
 import { escapeReportText, reportFileStem, REPORT_LAYOUT_CSS } from "../lib/report-export";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  DISTRICTS_BY_REGION,
   CMIP6_MODELS,
   CMIP6_PERIODS,
   CMIP6_SCENARIOS,
@@ -87,7 +88,6 @@ import {
   type WeightedGridPoint,
 } from "../lib/online-precipitation";
 import {
-  OCHA_ADM2_CATALOGUE_COUNT,
   boundaryFeatureName,
   normalizeBoundaryName,
 } from "../lib/district-boundaries";
@@ -1313,7 +1313,7 @@ const REPORT_EXPORT_CSS = `
 @media(max-width:700px){.evidence-classes{grid-template-columns:1fr}}
 @media print{.evidence-classes>div{break-inside:avoid}}
 `;
-const allDistricts = Object.values(DISTRICTS_BY_REGION).flat();
+const allDistricts = Object.values(PAKISTAN_DISTRICT_GROUPS).flat();
 function save(blob: Blob, name: string) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -2670,6 +2670,7 @@ function GoogleMapsOutlet({
 
 function BoundaryMap({
   geo,
+  contextGeo = null,
   selected,
   onSelect,
   onHover,
@@ -2679,6 +2680,7 @@ function BoundaryMap({
   point,
 }: {
   geo: GeoCollection | null;
+  contextGeo?: GeoCollection | null;
   selected: string;
   onSelect: (v: string) => void;
   onHover: (v: string) => void;
@@ -2715,6 +2717,7 @@ function BoundaryMap({
       value.forEach((part) => visit(part, target));
     };
     geo.features.forEach((f) => visit(f.geometry.coordinates));
+    contextGeo?.features.forEach(f=>visit(f.geometry.coordinates));
     const xs = points.map((p) => p[0]),
       ys = points.map((p) => p[1]),
       minX = Math.min(...xs),
@@ -2764,7 +2767,7 @@ function BoundaryMap({
       focus = { x: cx - width / 2, y: cy - height / 2, width, height };
     }
     return { path, marker, selectedKey, focus };
-  }, [geo, selected, point]);
+  }, [geo, contextGeo, selected, point]);
   if (!geo || !mapData)
     return (
       <div className="boundary-empty">
@@ -2894,6 +2897,7 @@ function BoundaryMap({
           if (!dragRef.current) setHovered("");
         }}
       >
+        {contextGeo?.features.map((feature,index)=><path key={`kashmir-context-${index}`} d={mapData.path(feature.geometry)} onPointerEnter={()=>setHovered("")} style={{fill:"#eadcbc",stroke:"#94621c",strokeWidth:1.2,strokeDasharray:"5 3",cursor:"help"}} fillRule="evenodd" aria-label={`${feature.properties.name}: Indian-administered, disputed, context only`}><title>{`${feature.properties.name} · Indian-administered · disputed territory · generalized context; not selectable for rainfall extraction`}</title></path>)}
         {geo.features.map((f, i) => {
           const n = boundaryName(f),
             matched = normalizeBoundaryName(n) === mapData.selectedKey;
@@ -3102,6 +3106,10 @@ export default function App() {
   const dailyQc = useMemo(() => assess(filtered), [filtered]),
     hourlyQc = useMemo(() => assessHourly(hourlyFiltered), [hourlyFiltered]);
   const cmipScalingExponent = cmipScalingMethod === "pakistan-imd" ? PAKISTAN_IMD.alpha : exponent;
+  const [kashmirContext,setKashmirContext] = useState<GeoCollection|null>(null);
+  const [showKashmirContext,setShowKashmirContext] = useState(true);
+  const [kashmirContextMessage,setKashmirContextMessage] = useState("Loading Kashmir map context…");
+  useEffect(()=>{let active=true;fetchGeoCollection("/data/kashmir-context.geojson").then(data=>{if(active){setKashmirContext(data);setKashmirContextMessage("Indian-administered Jammu and Kashmir and Ladakh · disputed; generalized map context, not rainfall-analysis districts.");}}).catch(()=>{if(active)setKashmirContextMessage("Kashmir context layer could not be loaded.");});return()=>{active=false;};},[]);
   const activeObservedQc = observedResolution === "daily" ? dailyQc : hourlyQc;
   const manualObservedLoaded =
     sourceTab === "observed" &&
@@ -6809,25 +6817,7 @@ export default function App() {
                       onChange={(e) => setName(e.target.value)}
                     />
                   </label>
-                  <label>
-                    District selection
-                    <select
-                      value={district}
-                      onChange={(e) => chooseDistrict(e.target.value)}
-                      disabled={manualObservedLoaded}
-                      aria-disabled={manualObservedLoaded}
-                    >
-                      {allDistricts.map((d) => (
-                        <option key={d}>{d}</option>
-                      ))}
-                    </select>
-                    {manualObservedLoaded && (
-                      <small className="field-note">
-                        Disabled: uploaded gauge data are fitted independently
-                        of district boundaries.
-                      </small>
-                    )}
-                  </label>
+                  <DistrictSelector district={district} onChange={chooseDistrict} disabled={manualObservedLoaded} />
                   <label>
                     Custom start date
                     <input
@@ -6906,25 +6896,7 @@ export default function App() {
                       onChange={(e) => setName(e.target.value)}
                     />
                   </label>
-                  <label>
-                    District selection
-                    <select
-                      value={district}
-                      onChange={(e) => chooseDistrict(e.target.value)}
-                      disabled={manualObservedLoaded}
-                      aria-disabled={manualObservedLoaded}
-                    >
-                      {allDistricts.map((d) => (
-                        <option key={d}>{d}</option>
-                      ))}
-                    </select>
-                    {manualObservedLoaded && (
-                      <small className="field-note">
-                        Disabled: uploaded gauge data are fitted independently
-                        of district boundaries.
-                      </small>
-                    )}
-                  </label>
+                  <DistrictSelector district={district} onChange={chooseDistrict} disabled={manualObservedLoaded} />
                   <label>
                     Custom start date
                     <input
@@ -7137,23 +7109,7 @@ export default function App() {
                         : "This public IMERG connection is daily. NASA's native 30-minute archive requires authenticated access."}
                 </small>
               </label>
-              <label>
-                District
-                <select
-                  value={district}
-                  onChange={(e) => chooseDistrict(e.target.value)}
-                  disabled={onlineBusy || spatialMode === "point"}
-                >
-                  {allDistricts.map((d) => (
-                    <option key={d}>{d}</option>
-                  ))}
-                </select>
-                <small className="field-note">
-                  All {OCHA_ADM2_CATALOGUE_COUNT} verified OCHA ADM2 polygons
-                  are available. Retrieval uses one selected district at a
-                  time; point mode uses the entered coordinates.
-                </small>
-              </label>
+              <DistrictSelector district={district} onChange={chooseDistrict} disabled={onlineBusy || spatialMode === "point"} />
               <label>
                 Start date
                 <input
@@ -7512,18 +7468,7 @@ export default function App() {
                   ))}
                 </select>
               </label>
-              <label>
-                District
-                <select
-                  value={district}
-                  onChange={(e) => chooseDistrict(e.target.value)}
-                  disabled={cmipBusy}
-                >
-                  {allDistricts.map((d) => (
-                    <option key={d}>{d}</option>
-                  ))}
-                </select>
-              </label>
+              <DistrictSelector district={district} onChange={chooseDistrict} disabled={cmipBusy} />
             </div>
             <div className="projection-summary">
               <div>
@@ -8209,7 +8154,9 @@ export default function App() {
                 </button>
               )}
             </div>
+            <div className="kashmir-map-context"><label><input type="checkbox" checked={showKashmirContext} onChange={event=>setShowKashmirContext(event.target.checked)}/> Show Indian-administered Kashmir and Ladakh (disputed)</label><p>{kashmirContextMessage}</p><small>Dashed amber areas are map context. Boundary depiction does not imply a determination of sovereignty. Sources: geoBoundaries, Natural Earth and OCHA.</small></div>
             <BoundaryMap
+              contextGeo={showKashmirContext?kashmirContext:null}
               key={boundary}
               geo={geo}
               selected={boundaryLevel === "district" ? district : mapSelection}

@@ -290,3 +290,13 @@ to reset. Moving the pointer shows the nearest **plotted** duration/intensity
 point, with return period and units. It does not interpolate extra rainfall
 values. Points and legend entries support keyboard focus/Enter/Space, and points
 support touch selection. Single-duration frequency plots also show cursor values.
+
+### Province-wise districts and Kashmir map context
+
+Location selectors use linked province/territory and district fields, derived
+from all 160 verified OCHA ADM2 boundaries. Changing province selects its first
+district; choosing a district on the map synchronizes its province automatically.
+Indian-administered Jammu and Kashmir and Ladakh are shown as a separate,
+disputed, generalized context overlay. The overlay is not an analysis boundary
+or an addition to the rainfall district catalogue. See
+[map sources and processing](docs/map-context-sources.md).
