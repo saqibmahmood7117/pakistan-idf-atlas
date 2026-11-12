@@ -1,4 +1,5 @@
 "use client";
+import { mmHrToInchHr } from "../../lib/rainfall-units";
 import { useState } from "react";
 import { fitPowerEquation, powerIntensityAtDuration, formatShermanEquation, shermanIntensity, shermanCalibrationNote, type ShermanEquationFit } from "../../lib/idf-design";
 import { PERIODS, type ResultRow } from "../../lib/observed-idf";
@@ -33,7 +34,7 @@ export default function PowerIntensityCalculator({ rows, globalFit, defaultDurat
     return <section className="tc-calculator power-calculator" aria-labelledby="power-calculator-title" data-testid="single-duration-lookup">
       <div className="tc-calculator-head"><div><span>Supported duration result</span><h3 id="power-calculator-title">{supportedDuration===1440?"24-hour":`${supportedDuration}-minute`} rainfall lookup</h3></div><code>Tabulated fitted return level</code></div>
       <div className="tc-input-grid"><label>Supported duration t (minutes)<input type="number" value={supportedDuration} readOnly /></label><label>Return period T (years)<select aria-label="Return period T (years)" value={selected.returnPeriodYears} onChange={event=>setPeriod(Number(event.target.value))}>{options.map(value=><option key={value} value={value}>{value}-year</option>)}</select></label></div>
-      <div className="tc-result-grid" aria-live="polite"><div><span>Rainfall intensity i</span><strong data-testid="power-intensity">{selected.intensityMmHr.toFixed(3)} mm/hour</strong><small>{selected.returnPeriodYears}-year tabulated estimate</small></div><div><span>Rainfall depth</span><strong>{selected.depthMm.toFixed(3)} mm</strong><small>Over {supportedDuration} minutes</small></div></div>
+      <div className="tc-result-grid" aria-live="polite"><div><span>Rainfall intensity i</span><strong data-testid="power-intensity">{selected.intensityMmHr.toFixed(3)} mm/hour</strong><small>{mmHrToInchHr(selected.intensityMmHr).toFixed(4)} inch/hr · {selected.returnPeriodYears}-year tabulated estimate</small></div><div><span>Rainfall depth</span><strong>{selected.depthMm.toFixed(3)} mm</strong><small>Over {supportedDuration} minutes</small></div></div>
       <p className="tc-caution">This analysis contains only one storm duration. The chart compares its return periods. A duration equation cannot be fitted from one duration. For a complete IDF family, use native duration-specific data. Daily duration scaling can generate derived curves where that option is available.</p>
     </section>;
   }
@@ -61,13 +62,14 @@ export default function PowerIntensityCalculator({ rows, globalFit, defaultDurat
         </label>
       </div>
       <div className="tc-result-grid" aria-live="polite" aria-atomic="true">
-        <div><span>Rainfall intensity i</span><strong data-testid="power-intensity">{intensity === null ? "—" : `${intensity.toFixed(3)} mm/hour`}</strong><small>{period}-year {equationMode === "sherman" ? "Sherman equation" : "power equation"}</small></div>
+        <div><span>Rainfall intensity i</span><strong data-testid="power-intensity">{intensity === null ? "—" : `${intensity.toFixed(3)} mm/hour`}</strong><small>{intensity === null ? "—" : `${mmHrToInchHr(intensity).toFixed(4)} inch/hr`} · {period}-year {equationMode === "sherman" ? "Sherman equation" : "power equation"}</small></div>
         <div><span>Rainfall depth</span><strong>{intensity === null ? "—" : `${(intensity * minutes / 60).toFixed(3)} mm`}</strong><small>i × t / 60</small></div>
         <div><span>Trendline R²</span><strong>{available ? available.rSquared.toFixed(4) : "—"}</strong><small>Log–log regression</small></div>
       </div>
       {equationMode === "sherman" && <p className="tc-caution" data-testid="sherman-calibration">{shermanCalibrationNote(globalFit)}</p>}
       <details className="equation-help">
         <summary>What do the equation and constants mean?</summary>
+        <p><strong>Units:</strong> Both mm/hr and inch/hr are displayed. Divide mm/hr by exactly 25.4 to obtain inch/hr. To use a displayed equation directly in inch/hr, divide its scale coefficient (a or c) by 25.4; keep all exponents, duration and offset unchanged.</p>
         <p><strong>i</strong> is rainfall intensity in mm/hour. <strong>t</strong> is your entered storm duration in minutes. <strong>T</strong> is the selected return period in years; each T has its own equation.</p>
         <p><strong>Sherman:</strong> i=aTᵐ/(t+b)ⁿ. a is the scale, m the return-period exponent, n the duration exponent and b the offset in minutes. The website profiles b≥0 and fits a, m and n in log space. b is calibrated only with at least three independently supported durations. Derived daily-to-duration values do not provide independent evidence for b. Boundary solutions and the calibration range are reported explicitly. This is a literature-supported equation family, not local design validation.</p>
         <p><strong>Power:</strong> the Excel-style alternative uses c and p for one return period.</p>

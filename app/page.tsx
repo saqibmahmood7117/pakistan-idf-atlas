@@ -1,4 +1,5 @@
 "use client";
+import { mmHrToInchHr, intensityPair } from "../lib/rainfall-units";
 import { ReportAcronyms, ReportEquationGuide, ReportSteps } from "./components/report-explanation";
 import { cmipBiasSpatialKey, matchCmipHistoricalBaseline, districtBiasReference, type CmipBiasSpatialAudit } from "../lib/cmip6-bias-context";
 import { IDF_LITERATURE } from "../lib/idf-literature";
@@ -1677,7 +1678,7 @@ function IdfChart({
   if (supportedDurations.size === 1) return <SingleDurationChart rows={rows} axis={axis} svgId={svgId} />;
   const w = 800,
     h = 668,
-    m = { l: 82, r: 118, t: 234, b: 70 },
+    m = { l: 112, r: 118, t: 234, b: 70 },
     plotW = w - m.l - m.r,
     plotH = h - m.t - m.b,
     durations = supportedDurations.size ? [...supportedDurations].sort((a,b)=>a-b) : [5,1440],
@@ -1752,7 +1753,7 @@ function IdfChart({
         id={svgId}
         viewBox={`0 0 ${w} ${h}`}
         role="img"
-        aria-label="IDF curves with duration on the x axis and rainfall intensity in millimetres per hour on the y axis"
+        aria-label="IDF curves with duration on the x axis and rainfall intensity in millimetres per hour and inches per hour on the y axis"
         style={{ fontFamily: "Arial, Helvetica, sans-serif" }}
       >
         <defs>
@@ -1767,7 +1768,7 @@ function IdfChart({
         <rect width={w} height={h} rx="10" fill="#ffffff" />
         <g aria-label="Power trendline equations for all return periods">
           <text x={m.l} y="35" fontSize="9" fontWeight="700" fill="#173b5c">
-            Excel-style power trendlines · i = c × tᵖ · t in minutes · i in mm/hour
+            Excel-style power trendlines · i = c × tᵖ · t in minutes · i in mm/hr; divide c by 25.4 for inch/hr
           </text>
           {series.map((item, index) => {
             const fit = powerEquationFits[index],
@@ -1786,7 +1787,7 @@ function IdfChart({
                       {`i = ${fit.coefficient.toFixed(3)}t`}<tspan baselineShift="super" fontSize="9">{fit.exponent.toFixed(3)}</tspan>
                     </text>
                     <text x={left + 64} y={top + 30} fontSize="9.5" fill="#405966">
-                      {`R² = ${fit.rSquared.toFixed(4)}`}
+                      {`R²=${fit.rSquared.toFixed(4)} · c(in/hr)=${mmHrToInchHr(fit.coefficient).toFixed(3)}`}
                     </text>
                     <title>{`${item.T}-year: ${formatPowerEquation(fit)}; log-space R² = ${fit.rSquared.toFixed(6)}; ${fit.sampleSize} durations`}</title>
                   </>
@@ -1832,7 +1833,7 @@ function IdfChart({
               fontWeight="600"
               fill="#536b77"
             >
-              {formatTick(t)}
+              {`${formatTick(t)} / ${mmHrToInchHr(t).toFixed(3)}`}
             </text>
           </g>
         ))}
@@ -1900,7 +1901,7 @@ function IdfChart({
                   stroke={colors[i]}
                   strokeWidth="2.2"
                 >
-                  <title>{`${s.T}-year return period · ${r.durationMinutes} minutes · ${r.intensityMmHr} mm/hour`}</title>
+                  <title>{`${s.T}-year return period · ${r.durationMinutes} minutes · ${intensityPair(r.intensityMmHr)}`}</title>
                 </circle>
               ))}
             </g>
@@ -2058,7 +2059,7 @@ function IdfChart({
           fontWeight="700"
           fill="#294958"
         >
-          Rainfall intensity (mm/hour)
+          Rainfall intensity (mm/hr / inch/hr)
         </text>
         <text x={m.l} y="18" fontSize="9" fontWeight="700" fill="#0f766e">
           IDF · intensity, not rainfall depth
@@ -5828,7 +5829,7 @@ export default function App() {
             : covariateComparison.selectionRule,
         Maximum_return_period_years: 500,
         Maximum_duration_hours: 24,
-        IDF_unit: "mm/hour",
+        IDF_unit: "mm/hr and inch/hr; 1 inch = 25.4 mm",
         Spatial_extraction_mode:
           sourceTab === "observed"
             ? "Uploaded station / gauge series"
@@ -6291,6 +6292,9 @@ export default function App() {
             duration_minutes: r.durationMinutes,
             return_period_years: r.returnPeriodYears,
             intensity_mm_per_hour: r.intensityMmHr,
+            intensity_inch_per_hour: mmHrToInchHr(r.intensityMmHr),
+            uncertainty_lower_inch_per_hour: mmHrToInchHr(r.ciLower),
+            uncertainty_upper_inch_per_hour: mmHrToInchHr(r.ciUpper),
             uncertainty_lower_mm_per_hour: r.ciLower,
             uncertainty_upper_mm_per_hour: r.ciUpper,
             uncertainty_type:
@@ -11101,6 +11105,8 @@ export default function App() {
 
         <section className="report-section section-break">
           <h2>Appendix B · Complete IDF intensity matrix</h2>
+          <p>Both intensity units are available below. The exact conversion is inch/hr = mm/hr ÷ 25.4. Conversion changes the equation scale coefficient, not its duration exponent, return period or R².</p>
+          <div className="report-table-wrap"><table><caption>Dual-unit IDF results and uncertainty</caption><thead><tr><th>Duration (min)</th><th>T (years)</th><th>mm/hr</th><th>inch/hr</th><th>Lower (inch/hr)</th><th>Upper (inch/hr)</th></tr></thead><tbody>{shown.map(row=><tr key={`${row.durationMinutes}-${row.returnPeriodYears}`}><td>{row.durationMinutes}</td><td>{row.returnPeriodYears}</td><td>{row.intensityMmHr.toFixed(3)}</td><td>{mmHrToInchHr(row.intensityMmHr).toFixed(4)}</td><td>{mmHrToInchHr(row.ciLower).toFixed(4)}</td><td>{mmHrToInchHr(row.ciUpper).toFixed(4)}</td></tr>)}</tbody></table></div>
           <p>
             The table reports the selected {activeFrequencyMethodLabel} curve
             family.

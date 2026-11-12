@@ -267,3 +267,11 @@ Provider and methodological references are listed in the generated technical
 report inside the application. No open-source license has yet been declared;
 add the project owner's chosen license before inviting external reuse or
 contributions.
+
+### Rainfall intensity units
+
+Charts and calculators display mm/hr and inch/hr together. Inch/hr equals mm/hr
+divided by exactly 25.4. Excel exports include both units and converted interval
+bounds; the report includes a dual-unit table. For an inch/hr IDF equation, divide
+the metric scale coefficient by 25.4 and keep the exponents and duration unchanged.
+Internal fitting and depth calculations remain metric.
