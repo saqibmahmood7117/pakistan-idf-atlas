@@ -70,3 +70,40 @@ boundary descriptions. No-grid exports are disabled until a snapshot exists.
   This checks live source retrieval, not gauge accuracy or all source/date combinations.
 - Complete live CMIP6 snapshot retrieval and browser interaction remain unverified;
   mocked provider API integration and production compilation are checked.
+
+## Annual rainfall summary
+
+The panel and report also show mean annual rainfall for the retrieved district
+series (using the active corrected CMIP6 series when applicable):
+
+`A_y = sum of valid native rainfall depths in calendar year y`
+
+`mean annual rainfall = sum(A_y for complete years) / number of complete years`
+
+Completeness for this total-rainfall metric is 100% of source-calendar daily or
+hourly intervals, stricter than the existing 90% IDF maxima eligibility rule.
+A total cannot treat unknown rainfall as zero. Entirely missing years between
+returned dates are retained as missing in the coverage audit, not skipped.
+Partially observed annual totals are reported but excluded from the mean.
+Available data from these years remain included in the separately labelled
+full-period retrieved total. No annualization, gap filling or duration-scaling
+formula is used. Zero precipitation remains valid; duplicate timestamps are
+not double-counted. Unknown calendars do not produce a claimed annual mean.
+
+Standard/Gregorian leap years and 365-day/noleap model years have separate
+expected counts. Open-Meteo hourly totals describe the preceding hour; their
+source timestamps are shifted to interval start only for annual assignment.
+Completing the final annual total can therefore require the following
+1 January midnight record. The UI states this and lists excluded boundary years.
+
+When the whole period is complete, the result is the full-period mean annual
+rainfall. Otherwise it is explicitly labelled as the complete-year subset.
+The source UTC date span, used/excluded years, annual coverage and full-period
+total are visible. Mean annual map mode disables date controls, displays the
+single district-series mean in mm/year, and does not infer a cell-wise annual
+field. CSV/Excel exports retain all annual totals and the same coverage basis.
+
+Numerical checks cover unequal leap-year totals, missing entire years, partial
+years, zero rainfall, duplicates, invalid dates, noleap models and hourly
+interval-ending assignment. No annual statistic is inferred from imported IDF
+return-level summaries without a matching continuous district rainfall series.

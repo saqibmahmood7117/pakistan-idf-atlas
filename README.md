@@ -321,3 +321,18 @@ bias-corrected; district QDM cannot be relabelled as cell-wise correction.
 Displayed maps and data can be downloaded as SVG and CSV, with source and
 boundary provenance. Other providers retain the district-series view when their
 individual grid values are not exposed. See [method and validation](docs/spatial-precipitation-map.md).
+
+### Average annual rainfall over the retrieved period
+
+The selected-district panel shows mean annual rainfall in mm/year and inches/year,
+full-period retrieved rainfall, annual totals and coverage. Annual rainfall is
+**the sum of native rainfall depths**, not annual maxima or an IDF intensity.
+The mean is the arithmetic average of complete source-calendar year totals.
+Partial years, missing days/hours and wholly absent years are identified and
+excluded from the mean without filling or annualizing missing rainfall. If all
+years are complete, it is the mean for the entire retrieved period; otherwise
+the complete-year subset is explicitly labelled. A 365-day model calendar is
+handled separately from Gregorian leap years. Preceding-hour records are aligned
+to their actual rainfall intervals before assigning years. A mean annual map
+view, coverage CSV and Annual Rainfall Excel sheet preserve this basis. The
+technical report executive summary includes the same statistic.
