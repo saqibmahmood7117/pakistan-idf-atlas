@@ -1,4 +1,6 @@
 "use client";
+import SpatialPrecipitationMap from "./components/spatial-precipitation-map";
+import { retrieveOpenMeteoSpatial, type SpatialRainSnapshot } from "../lib/spatial-precipitation";
 import { DEFAULT_DISTRICT_BOUNDARY } from "../lib/default-boundary";
 import DistrictSelector from "./components/district-selector";
 import { PAKISTAN_DISTRICT_GROUPS } from "../lib/district-catalogue";
@@ -3493,6 +3495,20 @@ export default function App() {
         : coordinateValid
           ? `Point/grid-cell at ${coordinateLat.toFixed(5)}, ${coordinateLon.toFixed(5)} · ${cmipQdmReady ? "monthly QDM corrected" : "raw GCM"}`
           : "Point/grid-cell coordinates";
+  const spatialSeriesMetadata = sourceTab === "online" ? onlineMetadata : sourceTab === "cmip6" ? cmipMetadata : null;
+  const spatialSeriesMatches = spatialMode === "district" && boundaryLevel === "district" && !!matchedBoundaryIdentity && spatialSeriesMetadata?.extractionMode === "district" && spatialSeriesMetadata.districtCode === matchedBoundaryIdentity.code && spatialSeriesMetadata.boundaryVersion === matchedBoundaryIdentity.version;
+  const spatialMapRecords = spatialSeriesMatches ? (sourceTab === "online" && onlineReady ? onlinePlotRecords : sourceTab === "cmip6" && cmipDataReady ? cmipPlotRecords : []) : [];
+  async function retrieveMappedSourceGrid(timestamp:string):Promise<SpatialRainSnapshot>{
+    if(!spatialSeriesMatches || !matchedBoundaryFeature)throw Error("Retrieve a district series matching this boundary before mapping source values.");
+    if(sourceTab === "online" && (onlineSource === "era5" || onlineSource === "ifs"))return retrieveOpenMeteoSpatial({source:onlineSource,resolution:onlineResolution,geometry:matchedBoundaryFeature.geometry,timestamp,fetchJson:url=>fetchOpenMeteoInBrowser(url)});
+    if(sourceTab !== "cmip6" || !cmipMetadata)throw Error("Individual source-grid values are not available for this provider in the map. Its retrieved district mean remains available.");
+    const post=async(payload:Record<string,unknown>)=>{const response=await fetch("/api/cmip6-precipitation",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(125000)});const value=await response.json();if(!response.ok || value.error)throw Error(value.error??"NASA spatial retrieval failed.");return value;};
+    const year=Number(timestamp.slice(0,4)),catalogue=await post({action:"catalogue",model:cmipMetadata.model,scenario:cmipMetadata.scenario,member:cmipMetadata.member,startYear:year,endYear:year}) as Cmip6Catalogue;
+    const file=catalogue.files.find(file=>file.year===year);if(!file)throw Error("NASA has no matching spatial source file for this year.");
+    const value=await post({action:"year",model:cmipMetadata.model,scenario:cmipMetadata.scenario,member:catalogue.selectedMember,year,fileName:file.fileName,mode:"district",geometry:matchedBoundaryFeature.geometry,spatialDate:timestamp});
+    if(!Array.isArray(value.spatialCells)||!value.spatialCells.length)throw Error("NASA returned no native spatial values for this date. Calendar gaps were not filled.");
+    return {timestamp,cells:value.spatialCells,sourceUrl:value.providerSubsetUrl,source:`${cmipMetadata.model} · ${cmipMetadata.scenario} · ${cmipMetadata.member}`,retrievedAt:new Date().toISOString(),note:`Raw NASA source cells, selected using the same district-centre inclusion method as daily extraction. ${value.nearestCellFallback?"Nearest-cell fallback was required; this is not a district-resolved raster.":"Footprints are clipped to the district for display; no interpolation is applied."} District QDM is not cell-wise correction. Calendar: ${value.sourceCalendar}. Valid cells: ${value.spatialCells.length}/${value.extractedGridCells}.`};
+  }
   const activeStationarity =
       sourceTab === "online"
         ? onlineStationarity
@@ -8155,6 +8171,11 @@ export default function App() {
               onSelect={chooseBoundaryFeature}
               onHover={previewBoundaryFeature}
             />
+            <SpatialPrecipitationMap key={`${sourceTab}|${currentCmipSpatialKey}|${spatialSeriesMetadata?.retrievedAt??"none"}`} district={district} geometry={matchedBoundaryFeature?.geometry} records={spatialMapRecords} boundaryCode={matchedBoundaryIdentity?.code} boundaryVersion={matchedBoundaryIdentity?.version} boundarySource={matchedBoundaryIdentity?.source}
+              source={sourceTab === "cmip6" && cmipMetadata ? `${cmipMetadata.dataset} · ${cmipMetadata.model} · ${cmipMetadata.scenario} · ${cmipMetadata.member}` : onlineMetadata?.dataset ?? "No matching district series"}
+              basis={sourceTab === "cmip6" ? cmipQdmReady ? "Retrieved district daily series after monthly QDM correction; not a cell-wise corrected field." : cmipMetadata?.nearestCellFallback ? "Retrieved nearest-cell representative series; this small polygon was not resolved as a district raster." : "Retrieved raw district daily series; no bias correction applied." : "Retrieved provider district average; approximate spatial sampling where documented."}
+              fetchGrid={spatialMapRecords.length && (sourceTab === "cmip6" || sourceTab === "online" && (onlineSource === "era5" || onlineSource === "ifs")) ? retrieveMappedSourceGrid : undefined}/>
+
           </article>
           <article className="panel boundary-audit">
             <h2>Boundary audit</h2>

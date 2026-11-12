@@ -301,3 +301,23 @@ its 161 named units. This includes the source's combined Kashmir unit and
 historical FATA grouping; newer district subdivisions are not invented.
 The original ZIP, active GeoJSON and repair audit are downloadable from the map.
 See [source and conversion details](docs/map-context-sources.md).
+
+### Precipitation on the selected district map
+
+After a boundary-matched district series is retrieved, the map panel shows
+its actual value on the selected polygon. Use the date/hour fields or time
+slider to inspect native intervals. Values are precipitation **depth** in mm
+and inches, not IDF design intensity. A polygon-wide value represents the
+retrieved district series and does not imply within-district uniform rain.
+
+An optional raw source view re-retrieves ERA5/IFS sampling locations or a
+single-date CMIP6 NetCDF grid using the selected geometry. Hover/focus cells or
+markers for actual values and coordinates. ERA5 sampling is approximate and may
+not cover the entire raster. IFS locations are markers because exact native
+footprints are not supplied. CMIP6 maps use the same centre-in-polygon rule as
+extraction and disclose nearest-cell fallback. Raw cells are **not** independently
+bias-corrected; district QDM cannot be relabelled as cell-wise correction.
+
+Displayed maps and data can be downloaded as SVG and CSV, with source and
+boundary provenance. Other providers retain the district-series view when their
+individual grid values are not exposed. See [method and validation](docs/spatial-precipitation-map.md).

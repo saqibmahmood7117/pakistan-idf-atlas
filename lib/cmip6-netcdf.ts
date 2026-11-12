@@ -246,6 +246,7 @@ export function parseCmip6NcssNetcdf(
   data: ArrayBuffer | Uint8Array,
   mode: "point" | "district",
   geometry?: OnlineGeometry,
+  spatialDate?: string,
 ) {
   const reader = new NetCDFReader(data);
   const timeVariable = findVariable(reader, ["time"]);
@@ -363,6 +364,7 @@ export function parseCmip6NcssNetcdf(
       "No NASA grid cells could be assigned to the selected extraction geometry.",
     );
 
+  const spatialCells: {latitude:number;longitude:number;precipitationMm:number;latitudeSize:number;longitudeSize:number;weight:number}[] = [];
   const records: DailyRecord[] = [];
   for (let timeIndex = 0; timeIndex < dates.length; timeIndex += 1) {
     let weightedSum = 0;
@@ -395,6 +397,7 @@ export function parseCmip6NcssNetcdf(
         0.01,
         Math.cos((cell.latitude * Math.PI) / 180),
       );
+      if(spatialDate && dates[timeIndex]===spatialDate) spatialCells.push({latitude:cell.latitude,longitude:cell.longitude,precipitationMm,weight,latitudeSize:latitudes.length>1?Math.abs(latitudes[1]-latitudes[0]):.25,longitudeSize:longitudes.length>1?Math.abs(longitudes[1]-longitudes[0]):.25});
       weightedSum += precipitationMm * weight;
       validWeight += weight;
     }
@@ -413,6 +416,7 @@ export function parseCmip6NcssNetcdf(
   const firstCell = acceptedCells[0];
   return {
     records,
+    spatialCells,
     extractedGridCells: acceptedCells.length,
     returnedLatitude: mode === "point" ? firstCell.latitude : undefined,
     returnedLongitude: mode === "point" ? firstCell.longitude : undefined,

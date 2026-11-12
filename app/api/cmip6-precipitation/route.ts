@@ -24,6 +24,7 @@ type CatalogueRequest = {
 
 type YearRequest = {
   action: "year";
+  spatialDate?: unknown;
   model?: unknown;
   scenario?: unknown;
   member?: unknown;
@@ -199,7 +200,12 @@ async function annualSubset(body: YearRequest) {
   const datasetPath = `${encodeURIComponent(modelFolder)}/${scenario}/${member}/pr/${encodeURIComponent(fileName)}`;
   const url = new URL(`${CMIP6_NCSS_BASE}/${datasetPath}`);
   url.searchParams.set("var", "pr");
-  url.searchParams.set("time", "all");
+  if(body.spatialDate!==undefined && typeof body.spatialDate!=='string')throw Error('Spatial date must be an ISO date string.');
+  const spatialDate=typeof body.spatialDate==='string'?body.spatialDate:undefined;
+  if(spatialDate){
+    if(body.mode!=='district'||!/^\d{4}-\d{2}-\d{2}$/.test(spatialDate)||Number(spatialDate.slice(0,4))!==year||!Number.isFinite(Date.parse(spatialDate+'T00:00:00Z'))||new Date(spatialDate+'T00:00:00Z').toISOString().slice(0,10)!==spatialDate)throw Error('Choose a valid spatial date inside this annual file.');
+    url.searchParams.set('time_start',spatialDate+'T00:00:00Z');url.searchParams.set('time_end',spatialDate+'T23:59:59Z');
+  }else url.searchParams.set("time", "all");
   url.searchParams.set("addLatLon", "true");
   if (body.mode === "point") {
     url.searchParams.set("accept", "csv");
@@ -229,12 +235,15 @@ async function annualSubset(body: YearRequest) {
           await response.arrayBuffer(),
           "district",
           body.geometry as OnlineGeometry,
+          spatialDate,
         );
   return Response.json(
     {
       status: "complete",
       year,
-      records: parsed.records,
+      records: spatialDate ? parsed.records.filter(row=>row.date===spatialDate) : parsed.records,
+      providerSubsetUrl: spatialDate ? url.toString() : undefined,
+      spatialCells: "spatialCells" in parsed ? parsed.spatialCells : undefined,
       extractedGridCells: parsed.extractedGridCells,
       returnedLatitude: parsed.returnedLatitude,
       returnedLongitude: parsed.returnedLongitude,

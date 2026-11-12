@@ -11,3 +11,9 @@ accept=netCDF, addLatLon=true. CF interval midpoint units are days since
 north=36.5, south=31.5, east=74.5, west=69.5 and horizStride=1 instead of
 point coordinates. The district test clips a 71.5–72.5°E, 33.5–34.5°N polygon,
 which intersects two returned native grid cells.
+
+`nex-daily-spatial.nc` is a synthetic NetCDF-3 test fixture, also used by the
+existing NEX district-parser test. It contains two days (2041-01-01/02), a 2×2
+latitude/longitude grid and precipitation flux. It is not an observed or projected
+rainfall dataset for use in the product. Spatial API tests use it to verify
+cell/date selection, flux conversion and preservation of district aggregation.
