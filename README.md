@@ -135,15 +135,21 @@ return period** and the calculator provides a fixed-duration result lookup.
 It does not display an empty duration axis or attempt to fit a duration equation.
 Daily CMIP6 results now use **Daily duration scaling** by default. The website
 first obtains fitted daily return levels (bias-corrected where available), then
-uses `P_t=P_24*(t/1440)^alpha` and `i_t=60*P_t/t` for 5–1440 minutes.
-The editable default `alpha=0.33` is uncalibrated. Sub-daily values are marked
+uses `P_t=P_24*(t/1440)^alpha` and `i_t=60*P_t/t`. The default named
+**Pakistan literature · IMD one-third** preset uses `alpha=1/3` exactly and
+1, 2, 3, 4, 6, 12 and 24 hours, following Haseeb et al. (2025),
+*Atmosphere* 16(11), 1271, Section 3.2 Eq. (1),
+https://doi.org/10.3390/atmos16111271. This is a published empirical choice
+used for Punjab cities, not a fitted national/district exponent. It does not
+establish validation for district-average rainfall or transfer outside Punjab.
+A separate **Custom exponent** mode permits unvalidated 5–1440-minute scaling. Sub-daily values are marked
 as derived; confidence bounds propagate daily uncertainty only. Disable the
 checkbox beside the curve calculator to show 24-hour values only. Imported
 bias-corrected daily ensembles use the same scaling after daily aggregation.
 The native 3-hour workflow is no longer shown in the source selector.
 
-### Native independently corrected sub-daily projections
-Select **Native 3-hour projections**. The separate ACCESS-CM2 r1i1p1f1
+### Retained native backend (not shown in the source selector)
+The former **Native 3-hour projections** implementation is retained in code. The separate ACCESS-CM2 r1i1p1f1
 CMIP6 `3hr pr` archive is retrieved through ESGF/CEDA subsets. Historical
 1985–2014, selected SSP future data, and hourly ERA5 reference are aggregated
 independently to 3, 6, 12 and 24 hours. Each duration uses its own annual maxima

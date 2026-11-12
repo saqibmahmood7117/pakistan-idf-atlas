@@ -246,10 +246,10 @@ export function powerIntensityAtDuration(
 }
 
 /** Daily duration scaling of fitted daily depths; not independent sub-daily correction. */
-export function scaleDailyDurations(rows: ResultRow[], alpha: number): ResultRow[] {
+export function scaleDailyDurations(rows: ResultRow[], alpha: number, durations: readonly number[] = [5,10,15,30,60,120,180,360,720,1440]): ResultRow[] {
   if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) return [];
   return rows.filter(row => row.durationMinutes === 1440).flatMap(row =>
-    [5,10,15,30,60,120,180,360,720,1440].map(durationMinutes => {
+    [...new Set(durations)].filter(duration=>Number.isFinite(duration) && duration>0 && duration<=1440).sort((a,b)=>a-b).map(durationMinutes => {
       if (durationMinutes === 1440) return {...row};
       const intensityFactor = (durationMinutes / 1440) ** (alpha - 1);
       const depthMm = row.depthMm * (durationMinutes / 1440) ** alpha;

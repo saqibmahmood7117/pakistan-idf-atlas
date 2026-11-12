@@ -1,6 +1,12 @@
 /** Published support for the equation family, not for a site's fitted coefficients. */
 export const IDF_LITERATURE = [
   {
+    label: "Haseeb et al. (2025), Atmosphere 16(11), 1271",
+    title: "Forecasting Rainfall IDF Curves Using Ground Data and Downscaled Climate Projections to Enhance Flood Management in Punjab, Pakistan",
+    url: "https://doi.org/10.3390/atmos16111271",
+    finding: "Section 3.2, Eq. (1), explicitly applies IMD depth reduction with alpha=1/3 at 1, 2, 3, 4, 6, 12 and 24 hours. This is a published empirical choice in a Punjab application, not a calibrated national exponent. The Atlas adopts this reduction component, not the paper's complete EQM/GCM/distribution pipeline.",
+  },
+  {
     label: "Gutiérrez-López, Jiménez Hernández & Sandoval (2019), Water",
     title: "Physical Parameterization of IDF Curves Based on Short-Duration Storms",
     url: "https://consensus.app/papers/physical-parameterization-of-idf-curves-based-on-gutierrez-lopez-hernández/722a1c3dd9655139bc043525013770e9/?utm_source=chatgpt",
