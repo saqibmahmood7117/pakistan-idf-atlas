@@ -1,5 +1,5 @@
 "use client";
-import { mmHrToInchHr, intensityPair } from "../lib/rainfall-units";
+import { mmHrToInchHr } from "../lib/rainfall-units";
 import { ReportAcronyms, ReportEquationGuide, ReportSteps } from "./components/report-explanation";
 import { cmipBiasSpatialKey, matchCmipHistoricalBaseline, districtBiasReference, type CmipBiasSpatialAudit } from "../lib/cmip6-bias-context";
 import { IDF_LITERATURE } from "../lib/idf-literature";
@@ -1320,8 +1320,9 @@ function save(blob: Blob, name: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 500);
 }
-function chartPng() {
-  const svg = document.querySelector("#idf-svg") as SVGElement | null;
+function chartPng() { chartPngFor("idf-svg"); }
+function chartPngFor(svgId: string) {
+  const svg = document.getElementById(svgId) as SVGElement | null;
   if (!svg) return;
   const img = new Image(),
     url = URL.createObjectURL(
@@ -1337,7 +1338,7 @@ function chartPng() {
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.drawImage(img, 0, 0, c.width, c.height);
-    c.toBlob((b) => b && save(b, "idf-curves.png"), "image/png");
+    c.toBlob((b) => b && save(b, `${svgId}-curves.png`), "image/png");
     URL.revokeObjectURL(url);
   };
   img.src = url;
@@ -1657,10 +1658,19 @@ function PrecipitationSeriesChart({
     </div>
   );
 }
-function IdfChart({
+function IdfChart(props: Parameters<typeof IntensityChart>[0]) {
+  const id = props.svgId ?? "idf-svg";
+  const imperialRows = props.rows.map(row=>({...row,intensityMmHr:mmHrToInchHr(row.intensityMmHr),ciLower:mmHrToInchHr(row.ciLower),ciUpper:mmHrToInchHr(row.ciUpper)}));
+  return <div className="separate-unit-charts">
+    <section aria-label="Rainfall curves in mm/hr"><h3>Rainfall intensity · mm/hr</h3><IntensityChart {...props} intensityUnit="mm/hr" />{id === "idf-svg" && <button onClick={()=>chartPngFor(id)}>Download mm/hr chart</button>}</section>
+    <section aria-label="Rainfall curves in inch/hr" style={{marginTop:24}}><h3>Rainfall intensity · inch/hr</h3><IntensityChart {...props} rows={imperialRows} svgId={`${id}-inch`} intensityUnit="inch/hr" equationFit={props.equationFit ? {...props.equationFit,a:mmHrToInchHr(props.equationFit.a)} : null} designIntensity={props.designIntensity == null ? null : mmHrToInchHr(props.designIntensity)} />{id === "idf-svg" && <button onClick={()=>chartPngFor(`${id}-inch`)}>Download inch/hr chart</button>}</section>
+  </div>;
+}
+function IntensityChart({
   rows,
   axis,
   svgId = "idf-svg",
+  intensityUnit = "mm/hr",
   equationFit = null,
   timeOfConcentrationMinutes = null,
   designReturnPeriod = 10,
@@ -1669,13 +1679,14 @@ function IdfChart({
   rows: ResultRow[];
   axis: "linear" | "log";
   svgId?: string;
+  intensityUnit?: "mm/hr" | "inch/hr";
   equationFit?: ShermanEquationFit | null;
   timeOfConcentrationMinutes?: number | null;
   designReturnPeriod?: number;
   designIntensity?: number | null;
 }) {
   const supportedDurations = new Set(rows.filter(row => row.durationMinutes > 0 && row.durationMinutes <= 1440 && Number.isFinite(row.intensityMmHr)).map(row => row.durationMinutes));
-  if (supportedDurations.size === 1) return <SingleDurationChart rows={rows} axis={axis} svgId={svgId} />;
+  if (supportedDurations.size === 1) return <SingleDurationChart rows={rows} axis={axis} svgId={svgId} intensityUnit={intensityUnit} />;
   const w = 800,
     h = 668,
     m = { l: 112, r: 118, t: 234, b: 70 },
@@ -1753,7 +1764,7 @@ function IdfChart({
         id={svgId}
         viewBox={`0 0 ${w} ${h}`}
         role="img"
-        aria-label="IDF curves with duration on the x axis and rainfall intensity in millimetres per hour and inches per hour on the y axis"
+        aria-label={`IDF curves with duration on the x axis and rainfall intensity in ${intensityUnit} on the y axis`}
         style={{ fontFamily: "Arial, Helvetica, sans-serif" }}
       >
         <defs>
@@ -1768,7 +1779,7 @@ function IdfChart({
         <rect width={w} height={h} rx="10" fill="#ffffff" />
         <g aria-label="Power trendline equations for all return periods">
           <text x={m.l} y="35" fontSize="9" fontWeight="700" fill="#173b5c">
-            Excel-style power trendlines · i = c × tᵖ · t in minutes · i in mm/hr; divide c by 25.4 for inch/hr
+            Excel-style power trendlines · i = c × tᵖ · t in minutes · i in {intensityUnit}
           </text>
           {series.map((item, index) => {
             const fit = powerEquationFits[index],
@@ -1787,7 +1798,7 @@ function IdfChart({
                       {`i = ${fit.coefficient.toFixed(3)}t`}<tspan baselineShift="super" fontSize="9">{fit.exponent.toFixed(3)}</tspan>
                     </text>
                     <text x={left + 64} y={top + 30} fontSize="9.5" fill="#405966">
-                      {`R²=${fit.rSquared.toFixed(4)} · c(in/hr)=${mmHrToInchHr(fit.coefficient).toFixed(3)}`}
+                      {`R² = ${fit.rSquared.toFixed(4)}`}
                     </text>
                     <title>{`${item.T}-year: ${formatPowerEquation(fit)}; log-space R² = ${fit.rSquared.toFixed(6)}; ${fit.sampleSize} durations`}</title>
                   </>
@@ -1833,7 +1844,7 @@ function IdfChart({
               fontWeight="600"
               fill="#536b77"
             >
-              {`${formatTick(t)} / ${mmHrToInchHr(t).toFixed(3)}`}
+              {formatTick(t)}
             </text>
           </g>
         ))}
@@ -1901,7 +1912,7 @@ function IdfChart({
                   stroke={colors[i]}
                   strokeWidth="2.2"
                 >
-                  <title>{`${s.T}-year return period · ${r.durationMinutes} minutes · ${intensityPair(r.intensityMmHr)}`}</title>
+                  <title>{`${s.T}-year return period · ${r.durationMinutes} minutes · ${r.intensityMmHr.toFixed(4)} ${intensityUnit}`}</title>
                 </circle>
               ))}
             </g>
@@ -1925,7 +1936,7 @@ function IdfChart({
                 stroke="#b87416"
                 strokeWidth="3"
               >
-                <title>{`Time of concentration ${timeOfConcentrationMinutes!.toFixed(2)} minutes · ${designReturnPeriod}-year design intensity ${designIntensity!.toFixed(2)} mm/hour`}</title>
+                <title>{`Time of concentration ${timeOfConcentrationMinutes!.toFixed(2)} minutes · ${designReturnPeriod}-year design intensity ${designIntensity!.toFixed(4)} ${intensityUnit}`}</title>
               </circle>
             </>
           )}
@@ -2059,7 +2070,7 @@ function IdfChart({
           fontWeight="700"
           fill="#294958"
         >
-          Rainfall intensity (mm/hr / inch/hr)
+          Rainfall intensity ({intensityUnit})
         </text>
         <text x={m.l} y="18" fontSize="9" fontWeight="700" fill="#0f766e">
           IDF · intensity, not rainfall depth

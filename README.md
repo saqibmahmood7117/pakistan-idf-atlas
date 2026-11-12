@@ -270,7 +270,7 @@ contributions.
 
 ### Rainfall intensity units
 
-Charts and calculators display mm/hr and inch/hr together. Inch/hr equals mm/hr
+Charts display mm/hr and inch/hr in separate panels with independent image downloads. Calculator results retain both unit readouts. Inch/hr equals mm/hr
 divided by exactly 25.4. Excel exports include both units and converted interval
 bounds; the report includes a dual-unit table. For an inch/hr IDF equation, divide
 the metric scale coefficient by 25.4 and keep the exponents and duration unchanged.
