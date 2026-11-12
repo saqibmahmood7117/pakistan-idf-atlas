@@ -104,6 +104,7 @@ import {
   type ImportedCmipWorkbook,
 } from "../lib/cmip6-workbook";
 import {
+  scaleDailyDurations,
   fitPowerEquation,
   fitShermanEquation,
   formatPowerEquation,
@@ -2921,6 +2922,7 @@ export default function App() {
     [method, setMethod] = useState<Method>("gev"),
     [axis, setAxis] = useState<"linear" | "log">("log"),
     [exponent, setExponent] = useState(0.33),
+    [cmipDailyScaling, setCmipDailyScaling] = useState(true),
     [timeOfConcentrationMode, setTimeOfConcentrationMode] =
       useState<"manual" | "kirpich">("manual"),
     [manualTimeOfConcentration, setManualTimeOfConcentration] = useState(""),
@@ -3626,7 +3628,7 @@ export default function App() {
   const activeNativeHourly =
     (sourceTab === "observed" && observedResolution === "hourly") ||
     (sourceTab === "online" && onlineResolution === "hourly");
-  const results =
+  const baseResults =
       sourceTab === "observed"
         ? observedResults
         : sourceTab === "online"
@@ -3640,6 +3642,7 @@ export default function App() {
             : modelTab === "nonstationary"
               ? nonstationaryCmip.rows
               : stationaryCmip,
+    results = sourceTab === "cmip6" ? (cmipDailyScaling ? scaleDailyDurations(baseResults, exponent) : baseResults.filter(row=>row.durationMinutes===1440)) : baseResults,
     shown = results.filter((r) => r.method === method),
     reportDurations = new Set(shown.map(row=>row.durationMinutes)).size === 1 ? [shown[0].durationMinutes] : [5, 10, 15, 30, 60, 120, 180, 360, 720, 1440],
     sourceLabel =
@@ -3647,7 +3650,7 @@ export default function App() {
         ? `${name} · observed ${observedResolution}`
         : sourceTab === "cmip6"
           ? cmipImportedReady && cmipImportedWorkbook
-            ? `Imported bias-corrected CMIP6 ensemble · ${cmipImportedWorkbook.locationName} · ${CMIP6_SCENARIOS[cmipScenario].label} · ${cmipPeriod} · ${cmipImportedModels.length} models · ${cmipReferenceLabel} · 24-hour only`
+            ? `Imported bias-corrected CMIP6 ensemble · ${cmipImportedWorkbook.locationName} · ${CMIP6_SCENARIOS[cmipScenario].label} · ${cmipPeriod} · ${cmipImportedModels.length} models · ${cmipReferenceLabel} · ${cmipDailyScaling ? "daily duration scaling" : "24-hour only"}`
           : cmipDataReady
             ? cmipMetadata
               ? `NASA NEX-GDDP-CMIP6 · ${cmipMetadata.model} · ${CMIP6_SCENARIOS[cmipScenario].label} · ${cmipMetadata.member} · ${cmipPeriod} · ${cmipQdmReady ? `${cmipQdm.method} · ${cmipReferenceLabel}` : "raw GCM"} · ${spatialMode === "district" ? `district grid-cell mean · ${district}` : `point · ${coordinateValid ? `${coordinateLat.toFixed(5)}, ${coordinateLon.toFixed(5)}` : "coordinates required"}`}`
@@ -3714,7 +3717,7 @@ export default function App() {
   const analysisClassification =
     sourceTab === "cmip6"
       ? cmipImportedReady && cmipImportedWorkbook
-        ? `Imported bias-corrected CMIP6 ensemble · model median with P10–P90 spread · ${cmipImportedWorkbook.validationStatus} · 24-hour only`
+        ? `Imported bias-corrected CMIP6 ensemble · model median with P10–P90 spread · ${cmipImportedWorkbook.validationStatus} · ${cmipDailyScaling ? "daily duration scaling" : "24-hour only"}`
       : !cmipDataReady
         ? "CMIP6 precipitation not yet retrieved for the active selection"
         : activeStationarity.n < 8
@@ -5535,7 +5538,7 @@ export default function App() {
           accepted_records: cmipQc.records.length,
           completeness_percent: +cmipQc.completeness.toFixed(2),
           eligible_annual_maxima: cmipStationarity.n,
-          subdaily_duration_basis: "Daily source supports 24 hours only; no temporal scaling or ratio expansion",
+          subdaily_duration_basis: cmipDailyScaling ? `Daily duration scaling: P_t=P_24*(t/1440)^alpha; alpha=${exponent}; derived after daily correction, not independent sub-daily correction` : "Daily source supports 24 hours only",
           bias_correction_method: cmipQdmReady
             ? cmipQdm.method
             : "not yet applied",
@@ -6177,7 +6180,7 @@ export default function App() {
             period_midpoint: cmipMidpoint,
             coverage: "0.25° global; daily",
             projection_end_year: 2100,
-            duration_basis: "Daily NEX-GDDP source: 24-hour results only",
+            duration_basis: cmipDailyScaling ? `Daily duration scaling; alpha=${exponent}; derived sub-daily values` : "Daily NEX-GDDP source: 24-hour results only",
             status:
               cmipImportedReady && cmipImportedWorkbook
                 ? `Imported bias-corrected model-specific return levels; ${cmipImportedWorkbook.validationStatus}`
@@ -6697,7 +6700,7 @@ export default function App() {
           >
             ◈ Daily CMIP6 projections
           </button>
-          <button className={sourceTab === "native" ? "active" : ""} onClick={() => setSourceTab("native")}>Native 3-hour projections</button>
+
         </div>
         {sourceTab === "observed" ? (
           <>
@@ -7628,7 +7631,7 @@ export default function App() {
                 <div><span>Pakistan location</span><strong>{spatialMode === "district" ? matchedBoundaryFeature ? `${district} district spatial series · ${matchedBoundaryIdentity?.code}` : "Load the selected district polygon" : cmipCoordinateReady ? `Verified project grid cell · ${coordinateLat.toFixed(5)}, ${coordinateLon.toFixed(5)}` : "Point coordinates inside Pakistan required"}</strong></div>
                 <div><span>Historical overlap</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.historicalPeriod : `${cmipMatchedBaseline.years.length} common years · ${cmipHistoricalQc.eligibleYears || 0} GCM years · ${cmipReferenceAms.length} ${cmipReferenceLabel} years`}</strong></div>
                 <div><span>Daily bias correction</span><strong>{cmipImportedReady ? `Precomputed and validated in workbook · ${cmipReferenceLabel}` : cmipQdmReady ? `12 monthly QDM groups · ${useEra5BiasReference ? "reanalysis-corrected" : "gauge-corrected"}` : `Pending historical + ${cmipReferenceLabel} comparison`}</strong></div>
-                <div><span>Sub-daily basis</span><strong>{"Daily product · 24-hour results only"}</strong></div>
+                <div><span>Sub-daily basis</span><strong>{cmipDailyScaling ? `Daily duration scaling · α=${exponent} · derived sub-daily curves` : "Daily product · 24-hour results only"}</strong></div>
                 <div><span>Active ensemble</span><strong>{cmipActiveEnsembleModels.length} models stored · {cmipRecommendedStored}/10 recommended · minimum 3</strong></div>
                 <div><span>Record status</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.validationStatus : projectionEvidenceStatus(cmipStationarity.n, 500)}</strong></div>
               </div>
@@ -8015,7 +8018,7 @@ export default function App() {
                   </strong>
                   <small>
                     {cmipImportedReady
-                      ? `${cmipImportedWorkbook?.validationStatus} · 24-hour only`
+                      ? `${cmipImportedWorkbook?.validationStatus} · ${cmipDailyScaling ? "daily duration scaling" : "24-hour only"}`
                       : cmipDataReady
                       ? `Each retained year has ≥${cmipQc.yearCompletenessThreshold}% daily coverage`
                       : spatialMode === "district"
@@ -8606,7 +8609,14 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <PowerIntensityCalculator rows={shown} globalFit={idfEquation} />
+            {sourceTab === "cmip6" && <section className="tc-calculator" aria-label="Daily duration scaling">
+              <h3>Daily duration scaling</h3>
+              <label><input type="checkbox" checked={cmipDailyScaling} onChange={e=>setCmipDailyScaling(e.target.checked)} /> Convert daily return levels to sub-daily curves</label>
+              <label>Daily scaling exponent α<input aria-label="Daily scaling exponent α" type="number" min="0.01" max="0.99" step="0.01" value={exponent} onChange={e=>{const value=Number(e.target.value);if(value>0 && value<1)setExponent(value);}} /></label>
+              <p><strong>Pₜ = P₂₄ × (t/1440)ᵅ; iₜ = 60Pₜ/t.</strong> P₂₄ is the fitted 24-hour depth in mm, t is duration in minutes, and α controls how depth changes with duration. Scaling is applied after daily bias correction when available. It does not create a continuous sub-daily rainfall series.</p>
+              <p className="tc-caution">Sub-daily curves are derived, not independently bias-corrected. The default α=0.33 is an uncalibrated duration-scaling parameter; use local sub-daily evidence to calibrate it. Confidence bounds propagate daily-fit uncertainty only and exclude scaling uncertainty.</p>
+            </section>}
+            <PowerIntensityCalculator key={sourceTab} rows={shown} globalFit={idfEquation} defaultEquationMode={sourceTab === "cmip6" ? "power" : "sherman"} />
             {shown.some((r) => r.durationMinutes <= 1440) ? (
               <>
                 <IdfChart
@@ -9356,6 +9366,7 @@ export default function App() {
         </div>
       </aside>
       <section id="report" className="content-width report">
+
         <div className="print-header">
           Pakistan IDF Atlas · Intensity-Duration-Frequency Technical Report
         </div>
@@ -9482,6 +9493,8 @@ export default function App() {
           <h2>
             <span>1.0</span> Executive summary
           </h2>
+        {sourceTab === "cmip6" && cmipDailyScaling && <div className="report-decision"><h2>Daily duration scaling: derived sub-daily results</h2><p>The plotted curves convert the active daily return levels to durations from 5 minutes to 24 hours. Where daily bias correction is complete, that correction precedes duration scaling. No native 3-hour projection data are required.</p><p>Pₜ=P₂₄(t/1440)ᵅ, with α={exponent}; iₜ=60Pₜ/t. P₂₄ is the fitted daily rainfall depth in mm; t is duration in minutes; α is the editable depth-duration exponent. Thus iₜ=i₂₄(t/1440)ᵅ⁻¹. The intensity exponent is {Number(exponent-1).toFixed(3)}, not a universal constant. A power-fit R² near 1 follows from this imposed relationship and does not validate sub-daily rainfall.</p><p>The default α=0.33 has not been locally calibrated. These curves are derived from daily values, not independently bias-corrected sub-daily observations. Confidence limits propagate the daily fit only. Local sub-daily validation is required before design use.</p></div>}
+
           <p className="report-summary">
             {sourceTab === "cmip6" && cmipImportedReady && cmipImportedWorkbook
               ? `The Atlas imported ${cmipImportedModels.length} model-specific, bias-corrected GEV curves for ${cmipImportedWorkbook.locationName}, ${CMIP6_SCENARIOS[cmipScenario].label}, ${cmipPeriod}. The 24-hour ensemble median is ${selected10?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 10-year event and ${selected500?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 500-year event; the displayed lower and upper bounds are the model P10 and P90, not sampling-confidence limits. Workbook validation status: ${cmipImportedWorkbook.validationStatus}.`
@@ -9512,7 +9525,7 @@ export default function App() {
             <dl>
               <div><dt>Result status</dt><dd>{shown.length ? analysisClassification : "No fitted result — this document records setup and methodology only."}</dd></div>
               <div><dt>Basis of assessment</dt><dd>{activeFrequencyMethodLabel} · {modelTab === "stationary" ? "stationary parameters" : covariateLabel}. {sourceTab === "cmip6" && cmipImportedReady ? "Imported model curves; annual maxima were not re-fitted." : `${activeStationarity.n} eligible 24-hour annual maxima.`}</dd></div>
-              <div><dt>Duration support</dt><dd>{sourceTab === "cmip6" && cmipImportedReady ? "24-hour return levels only. No sub-daily results inferred." : activeNativeHourly ? "Native hourly records support 1–24-hour rolling totals; shorter durations are derived." : "Daily data support 24-hour totals. Any shorter duration is derived and must be checked against local evidence."}</dd></div>
+              <div><dt>Duration support</dt><dd>{sourceTab === "cmip6" && cmipImportedReady ? cmipDailyScaling ? `Daily duration scaling (α=${exponent}); shorter durations are derived.` : "24-hour return levels only. No sub-daily results inferred." : activeNativeHourly ? "Native hourly records support 1–24-hour rolling totals; shorter durations are derived." : "Daily data support 24-hour totals. Any shorter duration is derived and must be checked against local evidence."}</dd></div>
               <div><dt>Required next action</dt><dd>{shown.length ? "Check source quality, duration assumptions and model sensitivity; obtain independent hydrologic review before design adoption." : "Upload a suitable gauge record or retrieve precipitation, then run the analysis and export again."}</dd></div>
             </dl>
           </div>
@@ -9852,7 +9865,7 @@ export default function App() {
                       <th>Workflow status</th>
                       <td>
                         {cmipImportedReady
-                          ? "Bias-corrected model-specific GEV rows summarized as median and P10–P90; 24-hour only"
+                          ? cmipDailyScaling ? `Bias-corrected daily GEV rows summarized as median and P10–P90, then duration-scaled with α=${exponent}` : "Bias-corrected model-specific GEV rows summarized as median and P10–P90; 24-hour only"
                         : cmipDataReady
                           ? "Retrieved series used for QC, annual maxima, distribution fitting and IDF"
                           : "Direct retrieval is available; no active GCM series"}
@@ -9907,7 +9920,7 @@ export default function App() {
             Equation definitions are reproduced in Appendix A.
           </p>
 
-          {sourceTab === "cmip6" && <div className="report-decision"><h3>Bias-correction spatial support</h3><p>Selected mode: {spatialMode === "district" ? `${district} district spatial series` : "point/grid-cell series"}. {activeCmipBiasAudit ? activeCmipBiasAudit.correctionOrder : "No matching historical spatial calibration has been completed for this selection."}</p>{activeCmipBiasAudit && <><p>Historical GCM: {activeCmipBiasAudit.historicalSpatialMethod}; {activeCmipBiasAudit.historicalGridCells} cells. Reference: {activeCmipBiasAudit.referenceSpatialMethod}; {activeCmipBiasAudit.referenceGridCells ?? "not applicable"} cells.</p><p>Boundary: {activeCmipBiasAudit.boundarySource ?? "point"} · {activeCmipBiasAudit.boundaryCode ?? "not applicable"} · {activeCmipBiasAudit.boundaryVersion ?? "not applicable"}. Common eligible years: {activeCmipBiasAudit.commonEligibleYears.join(", ")}. Model member: {activeCmipBiasAudit.member}.</p></>}<p>District QDM corrects the aggregated daily series, not every grid cell independently. No assumed duration scaling is used. ERA5 district reference sampling is approximate and does not establish gauge accuracy. Point gauge duration ratios are not applied to district-average rainfall.</p></div>}
+          {sourceTab === "cmip6" && <div className="report-decision"><h3>Bias-correction spatial support</h3><p>Selected mode: {spatialMode === "district" ? `${district} district spatial series` : "point/grid-cell series"}. {activeCmipBiasAudit ? activeCmipBiasAudit.correctionOrder : "No matching historical spatial calibration has been completed for this selection."}</p>{activeCmipBiasAudit && <><p>Historical GCM: {activeCmipBiasAudit.historicalSpatialMethod}; {activeCmipBiasAudit.historicalGridCells} cells. Reference: {activeCmipBiasAudit.referenceSpatialMethod}; {activeCmipBiasAudit.referenceGridCells ?? "not applicable"} cells.</p><p>Boundary: {activeCmipBiasAudit.boundarySource ?? "point"} · {activeCmipBiasAudit.boundaryCode ?? "not applicable"} · {activeCmipBiasAudit.boundaryVersion ?? "not applicable"}. Common eligible years: {activeCmipBiasAudit.commonEligibleYears.join(", ")}. Model member: {activeCmipBiasAudit.member}.</p></>}<p>District QDM corrects the aggregated daily series, not every grid cell independently. {cmipDailyScaling ? `Sub-daily curves use daily duration scaling with α=${exponent} after daily bias correction.` : "Only 24-hour results are displayed."} ERA5 district reference sampling is approximate and does not establish gauge accuracy. Point gauge duration ratios are not applied to district-average rainfall.</p></div>}
           <ReportSteps imported={sourceTab === "cmip6" && cmipImportedReady} hourly={activeNativeHourly && modelTab === "stationary"} source={sourceLabel} />
           <div className="method-flow">
             <div>
@@ -10980,7 +10993,7 @@ export default function App() {
           <p>
             {sourceTab === "cmip6"
               ? cmipImportedReady && cmipImportedWorkbook
-                ? `The ${CMIP6_SCENARIOS[cmipScenario].label} ${cmipPeriod} ensemble for ${cmipImportedWorkbook.locationName} is integrated from ${cmipImportedModels.length} separately fitted, bias-corrected model curves. The Atlas reports the model median with P10–P90 spread at 24 hours only. The result remains ${cmipImportedWorkbook.validationStatus.toLowerCase()} and requires gauge verification and independent engineering review before design adoption.`
+                ? `The ${CMIP6_SCENARIOS[cmipScenario].label} ${cmipPeriod} ensemble for ${cmipImportedWorkbook.locationName} is integrated from ${cmipImportedModels.length} separately fitted, bias-corrected model curves. The Atlas reports the model median with P10–P90 spread at 24 hours${cmipDailyScaling ? ` and derives sub-daily curves using daily duration scaling (α=${exponent})` : " only"}. The result remains ${cmipImportedWorkbook.validationStatus.toLowerCase()} and requires gauge verification and independent engineering review before design adoption.`
               : cmipDataReady
                 ? `The ${CMIP6_SCENARIOS[cmipScenario].label} ${cmipPeriod} daily precipitation for ${cmipModel}, ${cmipMetadata?.member ?? "member not reported"}, was retrieved for ${spatialLabel} and fitted model-specifically. The result is GCM-derived, but independent gauge evaluation and a multi-model ensemble remain necessary before design adoption.`
                 : `No ${cmipModel} precipitation series was retrieved for the ${CMIP6_SCENARIOS[cmipScenario].label} ${cmipPeriod} and ${spatialLabel} selection, so no GCM-derived IDF conclusion is issued.`

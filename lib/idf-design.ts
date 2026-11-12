@@ -244,3 +244,16 @@ export function powerIntensityAtDuration(
   const intensity = fit.coefficient * durationMinutes ** fit.exponent;
   return Number.isFinite(intensity) && intensity > 0 ? intensity : null;
 }
+
+/** Daily duration scaling of fitted daily depths; not independent sub-daily correction. */
+export function scaleDailyDurations(rows: ResultRow[], alpha: number): ResultRow[] {
+  if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) return [];
+  return rows.filter(row => row.durationMinutes === 1440).flatMap(row =>
+    [5,10,15,30,60,120,180,360,720,1440].map(durationMinutes => {
+      if (durationMinutes === 1440) return {...row};
+      const intensityFactor = (durationMinutes / 1440) ** (alpha - 1);
+      const depthMm = row.depthMm * (durationMinutes / 1440) ** alpha;
+      return {...row,durationMinutes,depthMm,intensityMmHr:depthMm * 60 / durationMinutes,
+        ciLower:row.ciLower * intensityFactor,ciUpper:row.ciUpper * intensityFactor,derived:true};
+    }));
+}

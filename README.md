@@ -133,7 +133,14 @@ not gauge-validated.
 When only 24-hour results are available, the chart plots **intensity against
 return period** and the calculator provides a fixed-duration result lookup.
 It does not display an empty duration axis or attempt to fit a duration equation.
-Daily CMIP6 results remain 24-hour only. Assumed temporal scaling is removed.
+Daily CMIP6 results now use **Daily duration scaling** by default. The website
+first obtains fitted daily return levels (bias-corrected where available), then
+uses `P_t=P_24*(t/1440)^alpha` and `i_t=60*P_t/t` for 5–1440 minutes.
+The editable default `alpha=0.33` is uncalibrated. Sub-daily values are marked
+as derived; confidence bounds propagate daily uncertainty only. Disable the
+checkbox beside the curve calculator to show 24-hour values only. Imported
+bias-corrected daily ensembles use the same scaling after daily aggregation.
+The native 3-hour workflow is no longer shown in the source selector.
 
 ### Native independently corrected sub-daily projections
 Select **Native 3-hour projections**. The separate ACCESS-CM2 r1i1p1f1
