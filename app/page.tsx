@@ -1,4 +1,6 @@
 "use client";
+import IdfChartDownload from "./components/idf-chart-download";
+import WatershedOutletMap from "./components/watershed-outlet-map";
 import { annualRainfallSummary } from "../lib/annual-rainfall";
 import SpatialPrecipitationMap from "./components/spatial-precipitation-map";
 import { retrieveOpenMeteoSpatial, type SpatialRainSnapshot } from "../lib/spatial-precipitation";
@@ -1325,29 +1327,6 @@ function save(blob: Blob, name: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 500);
 }
-function chartPng() { chartPngFor("idf-svg"); }
-function chartPngFor(svgId: string) {
-  const svg = document.getElementById(svgId) as SVGElement | null;
-  if (!svg) return;
-  const img = new Image(),
-    url = URL.createObjectURL(
-      new Blob([new XMLSerializer().serializeToString(svg)], {
-        type: "image/svg+xml",
-      }),
-    );
-  img.onload = () => {
-    const c = document.createElement("canvas");
-    c.width = 1400;
-    c.height = 800;
-    const ctx = c.getContext("2d")!;
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, c.width, c.height);
-    ctx.drawImage(img, 0, 0, c.width, c.height);
-    c.toBlob((b) => b && save(b, `${svgId}-curves.png`), "image/png");
-    URL.revokeObjectURL(url);
-  };
-  img.src = url;
-}
 function precipitationPlotPng() {
   const svg = document.querySelector(
     "#precipitation-series-svg",
@@ -1663,12 +1642,42 @@ function PrecipitationSeriesChart({
     </div>
   );
 }
-function IdfChart(props: Parameters<typeof IntensityChart>[0]) {
-  const id = props.svgId ?? "idf-svg";
-  const imperialRows = props.rows.map(row=>({...row,intensityMmHr:mmHrToInchHr(row.intensityMmHr),ciLower:mmHrToInchHr(row.ciLower),ciUpper:mmHrToInchHr(row.ciUpper)}));
+function IdfChart({ download, ...plot }: Parameters<typeof IntensityChart>[0] & {
+  download?: { location: string; source: string };
+}) {
+  const id = plot.svgId ?? "idf-svg";
+  const imperialRows = plot.rows.map(row => ({
+    ...row,
+    intensityMmHr: mmHrToInchHr(row.intensityMmHr),
+    ciLower: mmHrToInchHr(row.ciLower),
+    ciUpper: mmHrToInchHr(row.ciUpper),
+  }));
+  const charts = [
+    { ...plot, svgId: id, intensityUnit: "mm/hr" as const },
+    {
+      ...plot,
+      rows: imperialRows,
+      svgId: `${id}-inch`,
+      intensityUnit: "inch/hr" as const,
+      equationFit: plot.equationFit ? { ...plot.equationFit, a: mmHrToInchHr(plot.equationFit.a) } : null,
+      designIntensity: plot.designIntensity == null ? null : mmHrToInchHr(plot.designIntensity),
+    },
+  ];
   return <div className="separate-unit-charts">
-    <section aria-label="Rainfall curves in mm/hr"><h3>Rainfall intensity · mm/hr</h3><IntensityChart {...props} intensityUnit="mm/hr" />{id === "idf-svg" && <button onClick={()=>chartPngFor(id)}>Download mm/hr chart</button>}</section>
-    <section aria-label="Rainfall curves in inch/hr" style={{marginTop:24}}><h3>Rainfall intensity · inch/hr</h3><IntensityChart {...props} rows={imperialRows} svgId={`${id}-inch`} intensityUnit="inch/hr" equationFit={props.equationFit ? {...props.equationFit,a:mmHrToInchHr(props.equationFit.a)} : null} designIntensity={props.designIntensity == null ? null : mmHrToInchHr(props.designIntensity)} />{id === "idf-svg" && <button onClick={()=>chartPngFor(`${id}-inch`)}>Download inch/hr chart</button>}</section>
+    {charts.map((chart, index) => <section key={chart.svgId} aria-label={`Rainfall curves in ${chart.intensityUnit}`}
+      style={index === 1 ? { marginTop: 24 } : undefined}>
+      <div className={download ? "idf-chart-panel-header" : undefined}>
+        <h3>Rainfall intensity · {chart.intensityUnit}</h3>
+        {download && <IdfChartDownload
+          svgId={chart.svgId}
+          unit={chart.intensityUnit}
+          fileStem={`${reportFileStem(download.location)}-idf-${chart.intensityUnit.replace("/", "-per-")}`}
+          title={`${download.location} · ${download.source} · Rainfall intensity (${chart.intensityUnit})`}
+          onSave={save}
+        />}
+      </div>
+      <IntensityChart {...chart} />
+    </section>)}
   </div>;
 }
 function IntensityChart({
@@ -1941,7 +1950,7 @@ function IntensityChart({
               ))}
             </g>
           ))}
-          {hoverRow && <g pointerEvents="none"><line x1={x(hoverRow.durationMinutes)} x2={x(hoverRow.durationMinutes)} y1={m.t} y2={h-m.b} stroke="#173b5c" strokeDasharray="4 4"/><circle cx={x(hoverRow.durationMinutes)} cy={y(hoverRow.intensityMmHr)} r="7" fill="#fff" stroke="#173b5c" strokeWidth="3" /><rect x={m.l+8} y={m.t+7} width="290" height="28" rx="5" fill="white" stroke="#173b5c"/><text x={m.l+16} y={m.t+25} fontSize="10" fill="#173b5c">{`${hoverRow.returnPeriodYears}-year · ${hoverRow.durationMinutes} min · ${hoverRow.intensityMmHr.toFixed(4)} ${intensityUnit}`}</text></g>}
+          {hoverRow && <g data-chart-transient="" pointerEvents="none"><line x1={x(hoverRow.durationMinutes)} x2={x(hoverRow.durationMinutes)} y1={m.t} y2={h-m.b} stroke="#173b5c" strokeDasharray="4 4"/><circle cx={x(hoverRow.durationMinutes)} cy={y(hoverRow.intensityMmHr)} r="7" fill="#fff" stroke="#173b5c" strokeWidth="3" /><rect x={m.l+8} y={m.t+7} width="290" height="28" rx="5" fill="white" stroke="#173b5c"/><text x={m.l+16} y={m.t+25} fontSize="10" fill="#173b5c">{`${hoverRow.returnPeriodYears}-year · ${hoverRow.durationMinutes} min · ${hoverRow.intensityMmHr.toFixed(4)} ${intensityUnit}`}</text></g>}
           {concentrationVisible && (
             <>
               <line
@@ -2558,120 +2567,6 @@ function OutletSelectionMap({
   );
 }
 
-function GoogleMapsOutlet({
-  geo,
-  latitude,
-  longitude,
-  onSelect,
-}: {
-  geo: GeoCollection | null;
-  latitude: number | null;
-  longitude: number | null;
-  onSelect: (latitude: number, longitude: number) => void;
-}) {
-  const resolvedLatitude = latitude ?? 34.64737,
-    resolvedLongitude = longitude ?? 72.03598;
-  const [embedFailed, setEmbedFailed] = useState(false),
-    [mapZoom, setMapZoom] = useState(13),
-    mapCenter = {
-      latitude: resolvedLatitude,
-      longitude: resolvedLongitude,
-    };
-  const coordinate = `${mapCenter.latitude.toFixed(6)},${mapCenter.longitude.toFixed(6)}`,
-    embedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(coordinate)}&z=${mapZoom}&output=embed`;
-  const selectCoordinate = (event: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect(),
-      scale = 256 * 2 ** mapZoom,
-      clippedLatitude = Math.max(
-        -85.05112878,
-        Math.min(85.05112878, mapCenter.latitude),
-      ),
-      sine = Math.sin((clippedLatitude * Math.PI) / 180),
-      centerX = ((mapCenter.longitude + 180) / 360) * scale,
-      centerY =
-        (0.5 - Math.log((1 + sine) / (1 - sine)) / (4 * Math.PI)) *
-        scale,
-      selectedX = centerX + event.clientX - rect.left - rect.width / 2,
-      selectedY = centerY + event.clientY - rect.top - rect.height / 2,
-      selectedLongitude = (selectedX / scale) * 360 - 180,
-      mercatorY = Math.PI - (2 * Math.PI * selectedY) / scale,
-      selectedLatitude =
-        (Math.atan(Math.sinh(mercatorY)) * 180) / Math.PI,
-      next = {
-        latitude: Math.max(23.3, Math.min(37.2, selectedLatitude)),
-        longitude: Math.max(60.7, Math.min(77.3, selectedLongitude)),
-      };
-    onSelect(next.latitude, next.longitude);
-  };
-  if (embedFailed)
-    return (
-      <OutletSelectionMap
-        geo={geo}
-        latitude={latitude}
-        longitude={longitude}
-        onSelect={onSelect}
-      />
-    );
-  return (
-    <section className="google-outlet-map" aria-labelledby="google-outlet-title">
-      <div className="outlet-map-head">
-        <div>
-          <span>Google Maps outlet picker</span>
-          <strong id="google-outlet-title">Click the map to select coordinates</strong>
-        </div>
-        <output aria-live="polite">
-          {resolvedLatitude.toFixed(5)}, {resolvedLongitude.toFixed(5)}
-        </output>
-      </div>
-      <div className="google-map-picker">
-        <iframe
-          key={`${coordinate}-${mapZoom}`}
-          src={embedUrl}
-          title={`Google Maps outlet at ${resolvedLatitude.toFixed(5)}, ${resolvedLongitude.toFixed(5)}`}
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-          onError={() => setEmbedFailed(true)}
-        />
-        <button
-          type="button"
-          className="google-map-click-layer"
-          onClick={selectCoordinate}
-          aria-label="Select the MGHydro outlet at this Google Maps position"
-        >
-          <span>Click the intended river outlet</span>
-        </button>
-        <div className="google-map-controls" aria-label="Google map controls">
-          <button
-            type="button"
-            onClick={() => setMapZoom((value) => Math.min(18, value + 1))}
-            aria-label="Zoom in"
-          >
-            ＋
-          </button>
-          <button
-            type="button"
-            onClick={() => setMapZoom((value) => Math.max(6, value - 1))}
-            aria-label="Zoom out"
-          >
-            −
-          </button>
-          <button
-            type="button"
-            onClick={() => setMapZoom(13)}
-          >
-            Reset zoom
-          </button>
-        </div>
-      </div>
-      <p>
-        Select the outlet directly in this window. Each click updates latitude
-        and longitude and recentres Google Maps; use the controls to zoom before
-        calculating the longest flow path and slope with MGHydro.
-      </p>
-    </section>
-  );
-}
-
 function BoundaryMap({
   geo,
   selected,
@@ -3154,6 +3049,12 @@ export default function App() {
     () => annualRainfallSummary(dailyQc.records.map(row => ({ timestamp: row.date, precipitationMm: row.precipitationMm }))),
     [dailyQc.records],
   );
+  const selectWatershedOutlet = useCallback((latitude: number, longitude: number) => {
+    setWatershedOutletLatitude(latitude.toFixed(6));
+    setWatershedOutletLongitude(longitude.toFixed(6));
+    setWatershedGeometryResult(null);
+    setWatershedGeometryMessage(`Outlet selected at ${latitude.toFixed(5)}, ${longitude.toFixed(5)}. Calculate with MGHydro to delineate the watershed and derive L and S.`);
+  }, []);
   const coordinateLat = Number(stationLat),
     coordinateLon = Number(stationLon),
     coordinateValid =
@@ -7427,7 +7328,16 @@ export default function App() {
         ) : sourceTab === "native" ? (
           <NativeSubdailyWorkflow mode={spatialMode} district={district} geometry={matchedBoundaryFeature?.geometry} spatialKey={currentCmipSpatialKey} latitude={coordinateLat} longitude={coordinateLon} pointReady={cmipCoordinateReady} boundaryCode={matchedBoundaryIdentity?.code}
             fetchReference={(progress) => extractEra5InBrowser({source:"era5",resolution:"hourly",mode:spatialMode,start:"1985-01-01",end:"2015-01-01",latitude:spatialMode === "point" ? coordinateLat : undefined,longitude:spatialMode === "point" ? coordinateLon : undefined,geometry:spatialMode === "district" ? matchedBoundaryFeature?.geometry : undefined,districtName:matchedBoundaryIdentity?.name,districtCode:matchedBoundaryIdentity?.code,boundarySource:matchedBoundaryIdentity?.source,boundaryVersion:matchedBoundaryIdentity?.version,boundaryValidOn:matchedBoundaryIdentity?.validOn},progress)}
-            renderChart={(rows,svgId) => <IdfChart rows={rows} axis={axis} svgId={svgId} equationFit={fitShermanEquation(rows)} />} />
+            renderChart={(rows, svgId) => <IdfChart
+              rows={rows}
+              axis={axis}
+              svgId={svgId}
+              equationFit={fitShermanEquation(rows)}
+              download={{
+                location: spatialMode === "point" ? `${coordinateLat}, ${coordinateLon}` : district,
+                source: "Native CMIP6 · GEV L-moments",
+              }}
+            />} />
         ) : (
           <article className="panel online-workspace cmip6-workspace">
             <div>
@@ -8650,7 +8560,6 @@ export default function App() {
                   <option value="log">Logarithmic intensity axis</option>
                   <option value="linear">Linear intensity axis</option>
                 </select>
-                <button onClick={chartPng}>Download image</button>
                 <button onClick={excel} disabled={!results.length}>
                   Download Excel
                 </button>
@@ -8668,6 +8577,10 @@ export default function App() {
             {shown.some((r) => r.durationMinutes <= 1440) ? (
               <>
                 <IdfChart
+                  download={{
+                    location: sourceTab === "observed" ? name || "Observed gauge" : district,
+                    source: `${sourceLabel} · ${activeFrequencyMethodLabel}`,
+                  }}
                   rows={shown}
                   axis={axis}
                   equationFit={idfEquation}
@@ -8807,8 +8720,14 @@ export default function App() {
                   {timeOfConcentrationMode === "kirpich" &&
                     flowGeometryMode === "mghydro" && (
                       <div className="watershed-auto-panel">
-                        <GoogleMapsOutlet
-                          geo={projectDistrictGeo ?? geo}
+                        <WatershedOutletMap
+                          isInCoverage={insideProjectExtent}
+                          fallback={<OutletSelectionMap
+                            geo={projectDistrictGeo ?? geo}
+                            latitude={watershedOutletPointValid ? watershedOutletLatitudeNumber : null}
+                            longitude={watershedOutletPointValid ? watershedOutletLongitudeNumber : null}
+                            onSelect={selectWatershedOutlet}
+                          />}
                           latitude={
                             watershedOutletPointValid
                               ? watershedOutletLatitudeNumber
@@ -8819,14 +8738,7 @@ export default function App() {
                               ? watershedOutletLongitudeNumber
                               : null
                           }
-                          onSelect={(latitude, longitude) => {
-                            setWatershedOutletLatitude(latitude.toFixed(6));
-                            setWatershedOutletLongitude(longitude.toFixed(6));
-                            setWatershedGeometryResult(null);
-                            setWatershedGeometryMessage(
-                              `Outlet selected at ${latitude.toFixed(5)}, ${longitude.toFixed(5)}. Calculate with MGHydro to delineate the watershed and derive L and S.`,
-                            );
-                          }}
+                          onSelect={selectWatershedOutlet}
                         />
                         <div className="watershed-auto-grid">
                           <label>
