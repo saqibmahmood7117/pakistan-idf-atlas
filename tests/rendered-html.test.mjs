@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 import { escapeReportText, reportFileStem } from "../lib/report-export.ts";
 import * as XLSX from "xlsx";
@@ -115,7 +115,7 @@ test("live-source dates are independent from uploaded-observation filters", asyn
   assert.doesNotMatch(source, /onlineRequestedStart\s*=\s*start/);
 });
 
-test("Windows Selenium automation kit is downloadable and performs analysis QA", async () => {
+test("Windows Selenium automation kit performs analysis QA", async () => {
   const automation = await readFile(new URL("../standalone/atlas_automation.py", import.meta.url), "utf8");
   const desktop = await readFile(new URL("../standalone/Pakistan_IDF_Atlas_Automator.pyw", import.meta.url), "utf8");
   const launcher = await readFile(new URL("../standalone/RUN_PAKISTAN_IDF_ATLAS.bat", import.meta.url), "utf8");
@@ -123,8 +123,6 @@ test("Windows Selenium automation kit is downloadable and performs analysis QA",
   const buildRequirements = await readFile(new URL("../standalone/requirements-build.txt", import.meta.url), "utf8");
   const bundledWheels = await readdir(new URL("../standalone/wheels", import.meta.url));
   const spec = await readFile(new URL("../standalone/Pakistan_IDF_Atlas_Automator.spec", import.meta.url), "utf8");
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const archive = await stat(new URL("../public/downloads/Pakistan_IDF_Atlas_Standalone_Windows_OfflineInstaller_2026-08-20.zip", import.meta.url));
   assert.match(automation, /WebDriver as ChromeWebDriver/);
   assert.match(automation, /ChromeWebDriver\(options=options\)/);
   assert.match(automation, /Retrieved source data ready/);
@@ -163,8 +161,6 @@ test("Windows Selenium automation kit is downloadable and performs analysis QA",
   assert.ok(bundledWheels.some((name) => /^pycparser-.*\.whl$/i.test(name)));
   assert.match(spec, /collect_all\("selenium"\)/);
   assert.match(spec, /selenium\.webdriver\.chrome\.webdriver/);
-  assert.match(page, /Pakistan_IDF_Atlas_Standalone_Windows_OfflineInstaller_2026-08-20\.zip\?v=2026\.08\.20\.4\.1/);
-  assert.ok(archive.size > 10_000_000);
 });
 
 test("CMIP6 workflow offers an explicit ERA5 bias-correction fallback", async () => {
@@ -1198,6 +1194,8 @@ test("report metadata escapes user-controlled names and creates safe filenames",
 
 test("downloadable manual and sample report packages are present", async () => {
   const base = new URL('../public/downloads/', import.meta.url);
+  const downloads = await readdir(base);
+  assert.ok(downloads.every(file => !/^Pakistan_IDF_Atlas_Standalone_Windows.*\.zip$/i.test(file)));
   const manual = await readFile(new URL('Pakistan-IDF-Atlas-User-Manual.html', base), 'utf8');
   assert.match(manual, /Monthly|monthly/);
   assert.match(manual, /Review before sharing/);

@@ -6737,14 +6737,6 @@ export default function App() {
               visualize and export a traceable analysis.
             </p>
           </div>
-          <div className="hero-actions">
-            <a
-              href="/downloads/Pakistan_IDF_Atlas_Standalone_Windows_OfflineInstaller_2026-08-20.zip?v=2026.08.20.4.1"
-              download
-            >
-              Download Windows app + offline installer
-            </a>
-          </div>
         </div>
         <div className="screening-notice">
           <p>
