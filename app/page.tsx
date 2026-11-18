@@ -2866,7 +2866,7 @@ export default function App() {
       useState<"manual" | "kirpich">("manual"),
     [manualTimeOfConcentration, setManualTimeOfConcentration] = useState(""),
     [flowPathLengthMetres, setFlowPathLengthMetres] = useState(""),
-    [catchmentSlopePercent, setCatchmentSlopePercent] = useState(""),
+    [catchmentSlopeMPerM, setCatchmentSlopeMPerM] = useState(""),
     [flowGeometryMode, setFlowGeometryMode] =
       useState<"manual" | "mghydro" | "upload">("manual"),
     [watershedOutletLatitude, setWatershedOutletLatitude] =
@@ -3633,7 +3633,7 @@ export default function App() {
         : (watershedGeometryResult?.lengthMetres ?? Number.NaN),
     effectiveCatchmentSlopeMPerM =
       flowGeometryMode === "manual"
-        ? Number(catchmentSlopePercent) / 100
+        ? Number(catchmentSlopeMPerM)
         : (selectedWatershedSlopeMPerM ?? Number.NaN),
     idfEquation = fitShermanEquation(shown),
     idfPowerEquations = PERIODS.flatMap((returnPeriodYears) => {
@@ -3932,6 +3932,7 @@ export default function App() {
           length_m: watershedGeometryResult.lengthMetres,
           endpoint_slope: watershedGeometryResult.endpointSlopeMPerM,
           slope_10_85: watershedGeometryResult.slope10To85MPerM,
+          slope_units: "m/m",
           elevation_source: watershedGeometryResult.elevationSource,
         },
         geometry: {
@@ -6409,7 +6410,7 @@ export default function App() {
         ["Formula-driven hydrologic design calculation"],
         ["Parameter", "Value", "Units", "Equation / audit note"],
         ["Longest flow path, L", validFlowLength, "m", "Input from MGHydro, uploaded geometry or manual entry"],
-        ["Flow-path slope, S", validSlope, "m/m", "Input slope used by the Kirpich equation"],
+        ["Flow-path slope, S", validSlope, "m/m", "Elevation drop divided by flow-path length. For 2.5%, enter 0.025."],
         ["Kirpich coefficient", 0.0195, "minutes", "Metric Kirpich coefficient"],
         ["Length exponent", 0.77, "—", "Kirpich exponent on L"],
         ["Slope exponent", -0.385, "—", "Kirpich exponent on S"],
@@ -6486,6 +6487,14 @@ export default function App() {
               : watershedSlopeMethod === "10-85"
                 ? "10–85% flow-path slope"
                 : "Endpoint flow-path slope",
+          selected_flow_path_slope_m_per_m:
+            timeOfConcentrationMode === "kirpich"
+              ? validSlope || "not entered"
+              : "not applicable",
+          endpoint_slope_m_per_m:
+            watershedGeometryResult?.endpointSlopeMPerM ?? "not available",
+          slope_10_85_m_per_m:
+            watershedGeometryResult?.slope10To85MPerM ?? "not available",
           selected_flow_path_slope_percent:
             timeOfConcentrationMode === "kirpich"
               ? effectiveCatchmentSlopeMPerM * 100 || "not entered"
@@ -8701,18 +8710,21 @@ export default function App() {
                             />
                           </label>
                           <label>
-                            Average flow-path slope, S (%)
+                            <span id="kirpich-slope-label">Average flow-path slope, S (m/m)</span>
                             <input
                               type="number"
-                              min="0.0001"
-                              step="0.01"
+                              min="0.000001"
+                              step="any"
                               inputMode="decimal"
-                              value={catchmentSlopePercent}
+                              aria-labelledby="kirpich-slope-label"
+                              aria-describedby="kirpich-slope-hint"
+                              value={catchmentSlopeMPerM}
                               onChange={(event) =>
-                                setCatchmentSlopePercent(event.target.value)
+                                setCatchmentSlopeMPerM(event.target.value)
                               }
-                              placeholder="e.g. 2.5"
+                              placeholder="e.g. 0.025"
                             />
+                            <small id="kirpich-slope-hint">Enter 0.025 for a 2.5% slope.</small>
                           </label>
                         </>
                       )}
@@ -8782,7 +8794,7 @@ export default function App() {
                             </select>
                           </label>
                           <label>
-                            Slope used in Kirpich
+                            Slope used in Kirpich (m/m)
                             <select
                               value={watershedSlopeMethod}
                               onChange={(event) =>
@@ -8793,7 +8805,7 @@ export default function App() {
                                 )
                               }
                             >
-                              <option value="10-85">10–85% flow-path slope</option>
+                              <option value="10-85">Slope between the 10% and 85% points</option>
                               <option value="endpoint">Endpoint slope</option>
                             </select>
                           </label>
@@ -8839,7 +8851,7 @@ export default function App() {
                             />
                           </label>
                           <label>
-                            Slope used in Kirpich
+                            Slope used in Kirpich (m/m)
                             <select
                               value={watershedSlopeMethod}
                               onChange={(event) =>
@@ -8850,7 +8862,7 @@ export default function App() {
                                 )
                               }
                             >
-                              <option value="10-85">10–85% flow-path slope</option>
+                              <option value="10-85">Slope between the 10% and 85% points</option>
                               <option value="endpoint">Endpoint slope</option>
                             </select>
                           </label>
@@ -8881,15 +8893,15 @@ export default function App() {
                             </strong>
                           </div>
                           <div>
-                            <span>10–85% slope</span>
+                            <span>10–85% segment slope</span>
                             <strong>
-                              {(watershedGeometryResult.slope10To85MPerM * 100).toFixed(3)}%
+                              {watershedGeometryResult.slope10To85MPerM.toPrecision(6)} m/m
                             </strong>
                           </div>
                           <div>
                             <span>Endpoint slope</span>
                             <strong>
-                              {(watershedGeometryResult.endpointSlopeMPerM * 100).toFixed(3)}%
+                              {watershedGeometryResult.endpointSlopeMPerM.toPrecision(6)} m/m
                             </strong>
                           </div>
                           <div>
@@ -8923,6 +8935,8 @@ export default function App() {
                               : "Kirpich · manual L and S"
                           : "Project-supplied value"}
                       </small>
+                      {timeOfConcentrationMode === "kirpich" && kirpichConcentrationValue != null &&
+                        <small>S = {effectiveCatchmentSlopeMPerM.toPrecision(6)} m/m</small>}
                     </div>
                     <div>
                       <span>{designReturnPeriod}-year intensity at t<sub>c</sub></span>
@@ -8947,7 +8961,7 @@ export default function App() {
                     <p>
                       <strong>Kirpich:</strong>{" "}
                       <code>t<sub>c</sub>=0.0195L<sup>0.77</sup>S<sup>−0.385</sup></code>
-                      <small>L in metres, S in m/m, t<sub>c</sub> in minutes.</small>
+                      <small>L is in metres. S is elevation drop divided by flow-path length (m/m). t<sub>c</sub> is in minutes.</small>
                     </p>
                     <p>
                       <strong>Design intensity:</strong>{" "}
@@ -10453,7 +10467,7 @@ export default function App() {
             <p className="report-note">
               <strong>Time-of-concentration design lookup.</strong>{" "}
               {timeOfConcentrationMode === "kirpich"
-                ? `Using the metric Kirpich equation with L=${effectiveFlowPathLengthMetres.toFixed(2)} m and S=${(effectiveCatchmentSlopeMPerM * 100).toFixed(3)}%${flowGeometryMode === "manual" ? " from manual geometry" : ` from ${watershedGeometryResult?.pathSource ?? "the automatic geometry workflow"} using the ${watershedSlopeMethod === "10-85" ? "10–85%" : "endpoint"} slope`}, t₍c₎=${timeOfConcentrationMinutes.toFixed(2)} minutes.`
+                ? `Using the metric Kirpich equation with L=${effectiveFlowPathLengthMetres.toFixed(2)} m and S=${effectiveCatchmentSlopeMPerM.toPrecision(6)} m/m${flowGeometryMode === "manual" ? " from manual geometry" : ` from ${watershedGeometryResult?.pathSource ?? "the automatic geometry workflow"} using the ${watershedSlopeMethod === "10-85" ? "10–85% segment" : "endpoint"} slope`}, t₍c₎=${timeOfConcentrationMinutes.toFixed(2)} minutes.`
                 : `The project-supplied time of concentration is ${timeOfConcentrationMinutes.toFixed(2)} minutes.`}{" "}
               {designIntensity != null && designRainfallDepth != null
                 ? `For T=${designReturnPeriod} years, the displayed IDF equation gives i=${designIntensity.toFixed(2)} mm/hour and P=${designRainfallDepth.toFixed(2)} mm over t₍c₎.`
