@@ -18,9 +18,12 @@ export const REPORT_LAYOUT_CSS = `
 .report thead th{color:#173b5c}.report-decision{padding:18px 22px;border:1px solid #b9d2d6;background:#f3f8fa;border-radius:8px;margin:20px 0}
 .report-decision h3{margin-top:0}.report-decision dl{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0}
 .report-decision dt{font-size:9pt;font-weight:bold;color:#0f766e}.report-decision dd{margin:4px 0;font-size:10pt;line-height:1.5}
+.report-findings-facts{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;padding:16px 20px;background:#f3f8fa;border:1px solid #b9d2d6;border-radius:8px}
+.report-findings-facts dt{font-size:9pt;font-weight:700;color:#0f766e}.report-findings-facts dd{margin:4px 0 0;overflow-wrap:anywhere}
+.report-key-results td{text-align:right;font-variant-numeric:tabular-nums}.report-key-results th[scope="row"]{color:#173b5c}
 .report-download-panel{max-width:1000px;margin:32px auto -30px;padding:20px 24px;border:1px solid #cbdadd;border-radius:12px;background:#fff}
 .report-download-panel h2{margin:0 0 8px}.report-download-panel p{color:#405966;line-height:1.5}.report-actions a{background:#0f766e;color:#fff;padding:9px 13px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
-@media(max-width:700px){.single-duration-scroll{overflow-x:auto}.single-duration-scroll>svg{min-width:620px}.report-decision dl{grid-template-columns:1fr}.report-cover h1{font-size:25pt}}
+@media(max-width:700px){.single-duration-scroll,.report-table-wrap{overflow-x:auto}.single-duration-scroll>svg{min-width:620px}.report-decision dl,.report-findings-facts{grid-template-columns:1fr}.report-cover h1{font-size:25pt}}
 @media print{
   .single-duration-scroll{overflow:visible}.single-duration-scroll>svg{min-width:0!important}
   .equation-explanation{break-inside:avoid}
@@ -32,20 +35,33 @@ export const REPORT_LAYOUT_CSS = `
   .report thead{display:table-header-group}.report table{table-layout:fixed;width:100%;min-width:0!important}
   .report th,.report td{overflow-wrap:anywhere;font-size:7.5pt}.report-source-table th{white-space:normal!important}
   .report-download-panel{display:none!important}.report-decision{break-inside:avoid;padding:4mm}
+  .report-findings-facts{break-inside:avoid;padding:4mm}.report-findings-facts dd{font-size:9pt}
+  .report-chart .chart-interaction-controls,.report-chart .chart-hover-readout{display:none!important}
   .report-chart svg{display:block;width:100%;height:auto}.report-chart{break-inside:avoid}
   .report-contents{break-after:page}.report-actions{display:none!important}
 }`;
 
 export async function buildWordReport(root: HTMLElement, title: string): Promise<Blob> {
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel,
-    WidthType, Header, Footer, PageNumber, ImageRun, AlignmentType } = await import("docx");
+    WidthType, Header, Footer, PageNumber, ImageRun, AlignmentType, ExternalHyperlink } = await import("docx");
   type Block = InstanceType<typeof Paragraph> | InstanceType<typeof Table>;
+  type Run = InstanceType<typeof TextRun> | InstanceType<typeof ExternalHyperlink>;
   const text = (node: Element) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
   const paragraph = (value: string, options = {}) => new Paragraph({
     children: [new TextRun(value)], spacing: { after: 120 }, ...options,
   });
+  function runs(node: Node, bold = false): Run[] {
+    if (node.nodeType === 3) return [new TextRun({ text: (node.textContent ?? "").replace(/\s+/g, " "), bold })];
+    if (node.nodeType !== 1) return [];
+    const element = node as Element;
+    const href = element.tagName === "A" ? element.getAttribute("href") : null;
+    if (href && /^https?:\/\//i.test(href)) {
+      return [new ExternalHyperlink({ link: href, children: [new TextRun({ text: text(element), style: "Hyperlink" })] })];
+    }
+    return Array.from(node.childNodes).flatMap(child => runs(child, bold || element.matches("strong,b")));
+  }
   async function walk(element: Element): Promise<Block[]> {
-    if (element.matches(".report-actions,.print-header,.print-footer,.report-brand-mark")) return [];
+    if (element.matches(".report-actions,.print-header,.print-footer,.report-brand-mark,.chart-interaction-controls,.chart-hover-readout")) return [];
     if (element.tagName === "svg") {
       const svg = element as SVGSVGElement;
       const viewBox = svg.viewBox.baseVal;
@@ -70,7 +86,7 @@ export async function buildWordReport(root: HTMLElement, title: string): Promise
           children: Array.from(row.cells, (cell) => new TableCell({
             columnSpan: cell.colSpan, rowSpan: cell.rowSpan,
             shading: cell.tagName === "TH" ? { fill: "E8F2F3" } : undefined,
-            children: [paragraph(text(cell), { children: [new TextRun({ text: text(cell), bold: cell.tagName === "TH", size: 17 })] })],
+            children: [paragraph(text(cell), { children: [new TextRun({ text: text(cell), bold: cell.tagName === "TH", size: 17 })], spacing: { after: 60 } })],
           })),
         })) }),
       ];
@@ -79,21 +95,34 @@ export async function buildWordReport(root: HTMLElement, title: string): Promise
       const heading = { H1: HeadingLevel.HEADING_1, H2: HeadingLevel.HEADING_2, H3: HeadingLevel.HEADING_3 }[element.tagName];
       return [paragraph(text(element), { heading, keepNext: true })];
     }
-    if (element.tagName === "LI" && !element.querySelector("table")) return [paragraph(text(element), { bullet: { level: 0 } })];
-    if (["P", "FIGCAPTION", "DT", "DD"].includes(element.tagName)) return [paragraph(text(element), element.tagName === "DT" ? { keepNext: true } : {})];
+    if (element.tagName === "LI" && !element.querySelector("table")) {
+      const previousItems = Array.from(element.parentElement?.children ?? []).indexOf(element);
+      const listOptions = element.parentElement?.tagName === "OL"
+        ? { indent: { left: 240 }, children: [new TextRun(`${previousItems + 1}. `), ...runs(element)] }
+        : { bullet: { level: 0 }, children: runs(element) };
+      return [paragraph("", listOptions)];
+    }
+    if (["P", "FIGCAPTION", "DT", "DD"].includes(element.tagName)) {
+      return [paragraph("", { children: runs(element, element.tagName === "DT"), keepNext: element.tagName === "DT" })];
+    }
     if (!element.children.length) return text(element) ? [paragraph(text(element))] : [];
     const blocks: Block[] = [];
-    if (element.matches(".report-contents,.section-break")) blocks.push(new Paragraph({ pageBreakBefore: true }));
+    if (element.matches(".report-contents,.section-break,#report-executive")) blocks.push(new Paragraph({ pageBreakBefore: true, spacing: { after: 0 } }));
     for (const child of Array.from(element.children)) blocks.push(...await walk(child));
     return blocks;
   }
   const children = await walk(root);
   return Packer.toBlob(new Document({
     title, creator: "Pakistan IDF Atlas", description: "Technical analysis record generated from the active Atlas selection",
-    styles: { default: { document: { run: { font: "Calibri", size: 21, color: "263E4A" }, paragraph: { spacing: { line: 280 } } } } },
+    styles: { default: {
+      document: { run: { font: "Calibri", size: 21, color: "263E4A" }, paragraph: { spacing: { line: 280 } } },
+      heading1: { run: { font: "Calibri", bold: true, size: 44, color: "173B5C" } },
+      heading2: { run: { font: "Calibri", bold: true, size: 32, color: "173B5C" } },
+      heading3: { run: { font: "Calibri", bold: true, size: 25, color: "0F766E" } },
+    } },
     sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1020, bottom: 1020, left: 850, right: 850 } } },
       headers: { default: new Header({ children: [paragraph("PAKISTAN IDF ATLAS  /  TECHNICAL REPORT")] }) },
-      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun("Page "), new TextRun({ children: [PageNumber.CURRENT] })] })] }) }, children,
+      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES] })] })] }) }, children,
     }],
   }));
 }

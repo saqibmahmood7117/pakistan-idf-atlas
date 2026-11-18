@@ -7,6 +7,7 @@ import DistrictSelector from "./components/district-selector";
 import { PAKISTAN_DISTRICT_GROUPS } from "../lib/district-catalogue";
 import { PAKISTAN_IMD } from "../lib/pakistan-duration-scaling";
 import { mmHrToInchHr } from "../lib/rainfall-units";
+import { ReportDailyRecord, ReportFindings } from "./components/report-findings";
 import { ReportAcronyms, ReportEquationGuide, ReportSteps } from "./components/report-explanation";
 import { cmipBiasSpatialKey, matchCmipHistoricalBaseline, districtBiasReference, type CmipBiasSpatialAudit } from "../lib/cmip6-bias-context";
 import { IDF_LITERATURE } from "../lib/idf-literature";
@@ -1276,38 +1277,36 @@ const infrastructureGuidance = [
   },
 ];
 const glossary = [
-  [
-    "IDF",
-    "Intensity–Duration–Frequency: rainfall intensity for a stated storm duration and annual chance of exceedance.",
-  ],
-  [
-    "Return period and AEP",
-    "A T-year return period means a 1/T annual exceedance probability (AEP). It is an annual chance, not a promise that the event occurs once every T years.",
-  ],
-  [
-    "Annual-maxima series",
-    "The largest qualifying rainfall accumulation retained from each eligible year and used for frequency fitting.",
-  ],
-  [
-    "Stationary model",
-    "The fitted rainfall distribution is assumed not to change with year or another explanatory variable.",
-  ],
-  [
-    "Nonstationary model",
-    "At least one fitted distribution parameter changes with a stated explanatory variable. This report uses a time-varying GEV location when that option is selected.",
-  ],
-  [
-    "Reference year",
-    "The year at which a time-varying model is evaluated. The automatic value is the mean year of the eligible annual maxima; it is neither an extra observation nor a forecast.",
-  ],
-  [
-    "Derived duration",
-    "A duration calculated from a coarser observed interval by a stated scaling equation. It was not measured directly at that duration.",
-  ],
-  [
-    "95% bootstrap interval",
-    "A range from repeated resampling of eligible annual maxima. It represents sampling variation under the fitted workflow, not every source of uncertainty.",
-  ],
+  ["IDF", "Intensity–duration–frequency relates the average rainfall rate for a storm duration to its annual chance of exceedance."],
+  ["Duration (t)", "The time over which rain accumulates, usually entered in minutes. A duration of 1,440 minutes is 24 hours."],
+  ["Rainfall depth (P)", "The total rain over a stated interval. One millimetre equals one litre of water per square metre."],
+  ["Mean intensity (i)", "Depth divided by duration in hours. For example, 60 mm over two hours gives 30 mm/h. Divide mm/h by 25.4 to obtain in/h."],
+  ["Return period and AEP", "A T-year return level has a modelled chance of 1/T of being exceeded by the annual maximum. A 10-year return level can be exceeded in consecutive years."],
+  ["Return level and quantile", "The estimated depth or intensity at a specified exceedance probability. The 99th percentile of annual maxima corresponds to a 1% annual exceedance probability."],
+  ["Native interval and rolling total", "The source interval is the time covered by one reading. A rolling total adds consecutive interval depths over a moving window, such as six consecutive hourly totals for a six-hour storm."],
+  ["Dry day and missing day", "A recorded zero represents a measured dry day. A missing day has no usable rainfall value and reduces coverage."],
+  ["Record coverage", "Accepted readings divided by the expected number within the assessed span. The annual eligibility table compares each year with its full expected daily count, including leap days."],
+  ["Annual-maxima series (AMS)", "The largest qualifying rainfall accumulation for each eligible year and duration. The number of maxima is the size of the frequency sample."],
+  ["Annual total and mean annual rainfall", "The total adds rainfall over the year. The mean is the average of totals from complete years. This report labels recorded totals for incomplete years separately from the mean."],
+  ["Stationary model", "The fitted distribution uses constant parameters over the period. The reported annual exceedance probability refers to that fitted distribution."],
+  ["Nonstationary model", "The fitted location changes with time or a matched annual explanatory variable. The specified year or covariate value sets the conditions for the reported return level."],
+  ["Covariate and matched years", "A covariate is an annual variable used to explain changes in rainfall extremes. Model comparison uses years with both a rainfall maximum and the relevant covariate data."],
+  ["Reference year", "The year used to evaluate a time-varying model. The record-centre option uses the mean year of eligible maxima."],
+  ["Location, scale and shape (μ, σ, ξ)", "In the generalized extreme-value distribution, location shifts the depths, scale controls their spread and shape controls the behaviour of rare extremes."],
+  ["Derived duration and depth exponent (α)", "A derived depth uses a stated scaling equation to transfer an estimate from a source-supported duration. For daily power scaling, α controls the depth ratio between shorter durations and 24 hours."],
+  ["Trendline and R²", "A trendline summarizes calculated IDF points. Log-space R² describes how closely the fitted equation follows those points. Exact power scaling can produce a near-perfect fit by construction."],
+  ["95% bootstrap interval", "The 2.5th and 97.5th percentiles of refitted estimates from resampled data. The interval describes sampling uncertainty under the fitted method."],
+  ["Ensemble median and P10–P90", "The median is the middle estimate across included climate models. P10 and P90 mark the 10th and 90th percentiles of those estimates for the same scenario and period."],
+  ["AICc, ΔAICc and Akaike weight", "AICc ranks fitted models after penalizing complexity and accounting for sample size. ΔAICc measures the gap to the best model in a ranking. Akaike weight measures relative support among the models compared on shared data."],
+  ["RMSE and normalized RMSE", "Root mean square error measures the typical discrepancy between fitted and empirical quantiles, with larger errors carrying more weight. The normalized form expresses that discrepancy relative to the sample mean, as a percentage."],
+  ["PIT, KS D and lag 1", "The probability integral transform maps each maximum to its fitted cumulative probability. KS D is the largest gap between its empirical and reference cumulative distributions. Lag 1 measures association between consecutive values."],
+  ["Held-out mean NLL", "Mean negative log likelihood on the latest years reserved for evaluation. A smaller value means the model assigned higher likelihood to those held-out observations."],
+  ["Mann–Kendall p-value and Sen slope", "The p-value measures how unusual the observed trend statistic is under the no-trend assumption. Sen slope reports the median year-pair rate of change, in mm per year."],
+  ["Upper tail and extrapolation", "The upper tail describes the largest values in a fitted distribution. Rare return levels can depend on the fitted tail far beyond the years represented in the record."],
+  ["Grid cell and district mean", "A grid cell represents an area in the source grid. A district mean combines the selected provider values over the district using the stated sampling and weighting method."],
+  ["Bias correction, baseline and reference", "Bias correction adjusts model rainfall using differences estimated during a historical baseline. The reference is the gauge or gridded rainfall series used for comparison. Quantile delta mapping applies a correction that varies by rainfall quantile."],
+  ["Scenario and realization member", "The scenario specifies future forcing assumptions. A realization member identifies a particular simulation of a climate model under those assumptions."],
+  ["Time of concentration (t₍c₎)", "The estimated travel time from the hydraulically most distant point of a catchment to its outlet. The report can evaluate an IDF equation at that duration when it falls within the fitted range."],
 ] as const;
 const REPORT_EXPORT_CSS = `
 @page{size:A4;margin:18mm 15mm 18mm;@bottom-right{content:"Page " counter(page) " of " counter(pages);color:#6a7d86;font:7.5pt Arial,sans-serif}}
@@ -2956,6 +2955,10 @@ export default function App() {
       "daily",
     ),
     [raw, setRaw] = useState<DailyRecord[]>([]),
+    [dailyUploadAudit, setDailyUploadAudit] = useState<{
+      fileName: string; importedDays: number; sheets: string[];
+      invalidRows: number; duplicateRows: number; otherResolutionRows: number;
+    } | null>(null),
     [hourlyRaw, setHourlyRaw] = useState<HourlyRecord[]>([]),
     [start, setStart] = useState(""),
     [end, setEnd] = useState(""),
@@ -3146,6 +3149,10 @@ export default function App() {
         ? hourlyAnnualMaxima(hourlyQc.records, 24)
         : annualMaxima(qc.records, 1),
     [observedResolution, hourlyQc.records, qc.records],
+  );
+  const observedDailyRainfall = useMemo(
+    () => annualRainfallSummary(dailyQc.records.map(row => ({ timestamp: row.date, precipitationMm: row.precipitationMm }))),
+    [dailyQc.records],
   );
   const coordinateLat = Number(stationLat),
     coordinateLon = Number(stationLon),
@@ -3711,7 +3718,6 @@ export default function App() {
             : `${SOURCE_META[onlineSource].label} · ${onlineResolution} series not retrieved`,
     selected24h = shown.filter((r) => r.durationMinutes === 1440),
     selected10 = selected24h.find((r) => r.returnPeriodYears === 10),
-    selected50 = selected24h.find((r) => r.returnPeriodYears === 50),
     selected100 = selected24h.find((r) => r.returnPeriodYears === 100),
     selected250 = selected24h.find((r) => r.returnPeriodYears === 250),
     selected500 = selected24h.find((r) => r.returnPeriodYears === 500);
@@ -3788,6 +3794,45 @@ export default function App() {
               : activeStationarity.pValue < 0.05
                 ? "Trend detected — stationary assumption challenged"
                 : "Stationarity not rejected at α = 0.05";
+  const reportIsEnsemble = sourceTab === "cmip6" && cmipSelectionMode === "ensemble";
+  const reportIsNonstationary = modelTab === "nonstationary";
+  const reportNativeHourly = activeNativeHourly && !reportIsNonstationary;
+  const reportHasDerivedDurations = shown.some(row => row.derived);
+  const reportActiveQc = sourceTab === "observed" ? activeObservedQc
+    : sourceTab === "online" ? onlineQc
+    : cmipQdmReady ? cmipCorrectedQc : cmipQc;
+  const reportPeriod = reportIsEnsemble && shown.length ? cmipPeriod
+    : reportActiveQc.start && reportActiveQc.end ? `${reportActiveQc.start} to ${reportActiveQc.end}`
+    : "Awaiting a rainfall record for the active selection";
+  const reportFit = sourceTab === "cmip6"
+    ? (cmipValidatedRows.length ? nonstationaryCmipCorrected : nonstationaryCmip).fit
+    : nonstationaryCovariate === "time" ? nonstationaryTime.fit : nonstationaryMatched?.fit;
+  const reportSampleYears = reportIsNonstationary ? reportFit?.n ?? 0 : reportActiveQc.eligibleYears;
+  const reportSample = reportIsEnsemble
+    ? `${cmipActiveEnsembleModels.length} model results matching this selection`
+    : `${reportActiveQc.records.length.toLocaleString("en-GB")} accepted rainfall readings and ${reportSampleYears} eligible 24-hour annual maxima${reportIsNonstationary && nonstationaryCovariate !== "time" && sourceTab !== "cmip6" ? " matched to the selected covariate" : ""}`;
+  const reportCondition = reportIsNonstationary && shown.length
+    ? sourceTab === "cmip6" ? `Evaluated at the ${cmipMidpoint} period midpoint`
+    : nonstationaryCovariate === "time" ? `Evaluated at reference year ${referenceYear}`
+    : `Evaluated at ${selectedAnnualCovariate?.label} = ${covariateEvaluationValue.toFixed(3)} ${selectedAnnualCovariate?.units ?? ""}`
+    : "";
+  const reportResultStatus = shown.length
+    ? reportIsEnsemble ? `${cmipActiveEnsembleModels.length}-model ensemble of fitted return levels. ${cmipImportedWorkbook?.validationStatus ?? ""}`
+    : reportIsNonstationary ? "Fitted for the stated evaluation conditions. See the model comparison and diagnostics before using the estimates."
+    : analysisClassification
+    : !reportActiveQc.records.length || reportIsEnsemble ? "A matching rainfall record or set of model results is needed to estimate design rainfall."
+    : reportIsNonstationary && reportFit?.status === "Optimization failed" ? "The nonstationary fit could not be estimated for this sample."
+    : `The selected analysis has ${reportSampleYears} eligible years. ${reportIsNonstationary ? 20 : 8} are required for this model.`;
+  const reportNextStep = shown.length
+    ? "Review record coverage, fit diagnostics and the stated uncertainty before using the estimates in design."
+    : reportIsNonstationary && !reportIsEnsemble && reportActiveQc.eligibleYears >= 8
+      ? "Select Stationary IDF to fit the available record, or supply the longer matched record required for nonstationary analysis."
+      : "Check the source and date range. For daily observations, supply at least eight years with at least 90% of daily readings in each year.";
+  const reportDurationBasis = !shown.length ? "Duration evidence will be listed after a fit is available."
+    : !reportHasDerivedDurations ? (reportNativeHourly ? "The displayed durations use consecutive hourly totals." : "The analysis reports a 24-hour return level for each available return period.")
+    : sourceTab === "cmip6" && cmipScalingMethod === "pakistan-imd" ? "The 1-, 2-, 3-, 4-, 6- and 12-hour depths use the published IMD reduction formula with depth exponent 1/3, applied to the 24-hour estimates."
+    : reportNativeHourly ? `Rolling hourly observations support the 1–24-hour fits. Shorter results use the one-hour estimate and a depth-scaling exponent of ${exponent.toFixed(3)}.`
+    : `The 24-hour estimate supplies the base depth. Shorter durations use the depth-scaling exponent ${(sourceTab === "cmip6" ? cmipScalingExponent : exponent).toFixed(3)}.`;
   const reportDate = new Intl.DateTimeFormat("en-GB", {
       day: "2-digit",
       month: "long",
@@ -4461,9 +4506,15 @@ export default function App() {
       if (resolution === "hourly") {
         setHourlyRaw(parsed.hourlyRecords);
         setRaw([]);
+        setDailyUploadAudit(null);
       } else {
         setRaw(parsed.dailyRecords);
         setHourlyRaw([]);
+        setDailyUploadAudit({
+          fileName: file.name, importedDays: parsed.dailyRecords.length, sheets,
+          invalidRows: parsed.invalidRows, duplicateRows: parsed.duplicateRows,
+          otherResolutionRows: parsed.otherResolutionRows,
+        });
       }
       const dates = records.map((row) => keyOf(row).slice(0, 10));
       setStart(dates[0]);
@@ -6355,7 +6406,7 @@ export default function App() {
             uncertainty_lower_mm_per_hour: r.ciLower,
             uncertainty_upper_mm_per_hour: r.ciUpper,
             uncertainty_type:
-              cmipImportedReady
+              reportIsEnsemble
                 ? "P10–P90 across model-specific return levels"
                 : "95% bootstrap",
             derived_from_native_interval: r.derived,
@@ -6636,7 +6687,7 @@ export default function App() {
       | HTMLElement
       | undefined;
     if (!node) return;
-    node.querySelector(".report-actions")?.remove();
+    node.querySelectorAll(".report-actions,.chart-interaction-controls,.chart-hover-readout").forEach(element => element.remove());
     const reportName =
       sourceTab === "observed" ? name || "Observed gauge" : district;
     try {
@@ -9423,7 +9474,7 @@ export default function App() {
               </div>
               <div>
                 <dt>Revision</dt>
-                <dd>4.0 · generated from active analysis</dd>
+                <dd>5.0 · generated from active analysis</dd>
               </div>
               <div>
                 <dt>Precipitation source</dt>
@@ -9490,6 +9541,7 @@ export default function App() {
               </a>
             </li>
             <li><a href="#report-equations">Appendix A · Equations, constants and worked example</a></li>
+            <li><a href="#report-terms">Appendix D · Essential terms</a></li>
             <li><a href="#report-acronyms">Appendix E · List of acronyms</a></li>
           </ol>
         </nav>
@@ -9498,108 +9550,11 @@ export default function App() {
           <h2>
             <span>1.0</span> Executive summary
           </h2>
-        {sourceTab === "cmip6" && cmipDailyScaling && <div className="report-decision"><h2>Daily duration scaling: derived sub-daily results</h2><p>The plotted curves convert the active daily return levels using {cmipScalingMethod === "pakistan-imd" ? "the IMD one-third method published for Punjab, Pakistan, at 1, 2, 3, 4, 6, 12 and 24 hours" : "custom depth-duration scaling from 5 minutes to 24 hours"}. Where daily bias correction is complete, that correction precedes duration scaling. No native 3-hour projection data are required.</p><p>Pₜ=P₂₄(t/1440)ᵅ, with α={cmipScalingExponent}; iₜ=60Pₜ/t. P₂₄ is the fitted daily rainfall depth in mm; t is duration in minutes; α is the depth-duration exponent, fixed by the named literature preset or entered in Custom mode. Thus iₜ=i₂₄(t/1440)ᵅ⁻¹. The intensity exponent is {Number(cmipScalingExponent-1).toFixed(6)}, not a universal constant. A power-fit R² near 1 follows from this imposed relationship and does not validate sub-daily rainfall.</p><p>{cmipScalingMethod === "pakistan-imd" ? PAKISTAN_IMD.basis : "The custom exponent has not been locally calibrated."} {cmipScalingMethod === "pakistan-imd" && <span>Source: <a href={PAKISTAN_IMD.url}>{PAKISTAN_IMD.citation} DOI: {PAKISTAN_IMD.doi}</a>, Section 3.2, Equation (1). </span>} These curves are derived from daily values, not independently bias-corrected sub-daily observations. Confidence limits propagate the daily fit only. Local sub-daily validation is required before design use.</p></div>}
+          <ReportFindings rows={selected24h} source={sourceLabel} period={reportPeriod}
+            method={activeFrequencyMethodLabel} sample={reportSample} status={reportResultStatus}
+            condition={reportCondition} step={reportNextStep} durationBasis={reportDurationBasis} ensemble={reportIsEnsemble} />
 
-          <p className="report-summary">
-            {sourceTab === "cmip6" && cmipImportedReady && cmipImportedWorkbook
-              ? `The Atlas imported ${cmipImportedModels.length} model-specific, bias-corrected GEV curves for ${cmipImportedWorkbook.locationName}, ${CMIP6_SCENARIOS[cmipScenario].label}, ${cmipPeriod}. The 24-hour ensemble median is ${selected10?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 10-year event and ${selected500?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 500-year event; the displayed lower and upper bounds are the model P10 and P90, not sampling-confidence limits. Workbook validation status: ${cmipImportedWorkbook.validationStatus}.`
-              : sourceTab === "cmip6" && !cmipDataReady
-              ? `No NASA NEX-GDDP-CMIP6 precipitation has been retrieved for ${cmipModel}, ${CMIP6_SCENARIOS[cmipScenario].label}, ${cmipPeriod} and ${spatialLabel}; therefore no GCM-derived IDF result is reported.`
-              : sourceTab === "online" && !onlineReady
-                ? `No provider series has been retrieved for the active ${SOURCE_META[onlineSource].label} and ${spatialLabel} selection, so no online IDF result is reported.`
-                : activeStationarity.n < 8
-                  ? `The ${sourceTab === "online" ? "retrieved online" : "uploaded"} record produced ${activeStationarity.n} eligible annual maxima. At least eight are required to estimate stationary IDF values, so no frequency result should be adopted from this record.`
-                  : modelTab === "nonstationary" &&
-                      nonstationaryCovariate === "time"
-                    ? nonstationaryTime.fit.status === "Fitted"
-                      ? `A time-varying GEV was fitted to ${activeStationarity.n} eligible annual maxima. At reference year ${referenceYear}, the estimated 24-hour intensity is ${selected10?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 10-year event and ${selected500?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 500-year event. The model comparison is ${nonstationaryTime.fit.preferred.toLowerCase()} (ΔAICc=${nonstationaryTime.fit.deltaAicc.toFixed(2)}); ${referenceYearStatus.toLowerCase()}.`
-                      : `A time-varying GEV cannot be estimated from ${nonstationaryTime.fit.n} eligible annual maxima; at least 20 are required.`
-                    : modelTab === "nonstationary"
-                      ? nonstationaryMatched?.fit.status === "Fitted"
-                        ? `A ${nonstationaryMatched.fit.covariateLabel}-dependent GEV was fitted to ${nonstationaryMatched.fit.n} matched annual maxima and evaluated at ${covariateEvaluationValue.toFixed(3)} ${nonstationaryMatched.fit.units}. The estimated 24-hour intensity is ${selected10?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 10-year event and ${selected500?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 500-year event. The model decision is ${covariateComparison.decision.toLowerCase()}; correlation was not used.`
-                        : "The selected annual covariate does not have at least 20 values matched to eligible annual maxima, so no nonstationary frequency result is issued."
-                    : `The ${sourceTab === "online" ? onlineMetadata?.dataset : sourceTab === "cmip6" ? `${cmipMetadata?.dataset ?? "uploaded GCM record"} (${cmipModel}, ${cmipMetadata?.member ?? "member not reported"})` : `uploaded ${observedResolution} record`} produced ${activeStationarity.n} eligible 24-hour annual maxima. Using ${METHOD_LABEL[method]}, the estimated 24-hour intensity is ${selected10?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 10-year event and ${selected500?.intensityMmHr.toFixed(2) ?? "—"} mm/hour for the 500-year event. The 250- and 500-year results extend far beyond the record and require independent review.`}
-          </p>
-          <h3>What the assessment tells you</h3>
-          <p><strong>Question addressed.</strong> How much rainfall could occur over a specified duration at the selected annual exceedance probability? The analysis uses {sourceLabel}. The active method is {activeFrequencyMethodLabel}; {modelTab === "stationary" ? "its parameters are assumed constant over time." : `its result is conditional on ${covariateLabel}.`}</p>
-          <p><strong>How the answer was obtained.</strong> {sourceTab === "cmip6" && cmipImportedReady ? "The Atlas validated supplied model-specific 24-hour return levels and calculated the ensemble summary. It did not re-fit a daily record or infer sub-daily curves from the workbook." : shown.length ? `The workflow screened the precipitation record, retained eligible annual maxima, fitted the selected frequency model and converted estimated depths to intensity. ${idfPowerEquations.length ? "A Sherman relationship summarizes the IDF surface for the default duration calculator; separately selectable power equations reproduce Excel-style trendlines." : "No multi-duration power equation is available for the active selection."}` : "No fitted result is currently available. This document describes the selected setup and methods; its blank outputs must not be interpreted as zero rainfall."}</p>
           {spatialMapRecords.length>0 && <div className="report-decision"><h3>Average annual rainfall over the retrieved period</h3><p>{spatialAnnualRainfall.meanMm===null ? "No complete source-calendar years are available to estimate average annual rainfall." : `The mean annual district-series rainfall is ${spatialAnnualRainfall.meanMm.toFixed(2)} mm/year (${mmHrToInchHr(spatialAnnualRainfall.meanMm).toFixed(3)} inches/year), calculated as the sum of ${spatialAnnualRainfall.completeYears.length} complete annual totals divided by that number of years.`} Retrieved period: {spatialAnnualRainfall.start} to {spatialAnnualRainfall.end} UTC. Total available rainfall across that period is {spatialAnnualRainfall.totalMm.toFixed(2)} mm. {spatialAnnualRainfall.excludedYears.length?`Incomplete years excluded from the mean: ${spatialAnnualRainfall.excludedYears.join(', ')}. No missing rainfall was filled or scaled up.`:"All represented years are complete."} Calendar: {spatialAnnualRainfall.calendar}. {sourceTab==="cmip6"&&cmipQdmReady?"These statistics use the active district QDM-corrected daily series.":"These statistics use the active retrieved district series."} This is the mean of annual rainfall totals, not an annual-maximum or IDF intensity statistic.</p></div>}
-          <p><strong>Main finding in practical units.</strong> {selected100 ? `The selected 100-year, 24-hour estimate is ${selected100.intensityMmHr.toFixed(2)} mm/hour, equivalent to ${(selected100.intensityMmHr * 24).toFixed(2)} mm over 24 hours. This is an average intensity over the full duration, not a constant rate observed during a real storm. A 100-year level corresponds to 1% annual exceedance probability${modelTab === "nonstationary" ? " conditional on the selected year or covariate value" : " under the stationary model"}; it can be exceeded in consecutive years.` : "A 100-year, 24-hour value is not estimated for the active selection. Load sufficient eligible data and confirm model status before interpreting rainfall magnitudes."}</p>
-          <p><strong>How to use this report.</strong> Read the QC evidence before the results; use Appendix A to trace equations and constants, Appendix B for the full intensity matrix and Appendix E for acronyms. Sub-daily derived values and 250-/500-year extrapolations need particular scrutiny. Trendline R² is not a measure of design reliability. Adopt values only after checking source quality, applicable design criteria and independent hydrologic review.</p>
-          <div className="report-decision">
-            <h3>Assessment at a glance</h3>
-            <dl>
-              <div><dt>Result status</dt><dd>{shown.length ? analysisClassification : "No fitted result — this document records setup and methodology only."}</dd></div>
-              <div><dt>Basis of assessment</dt><dd>{activeFrequencyMethodLabel} · {modelTab === "stationary" ? "stationary parameters" : covariateLabel}. {sourceTab === "cmip6" && cmipImportedReady ? "Imported model curves; annual maxima were not re-fitted." : `${activeStationarity.n} eligible 24-hour annual maxima.`}</dd></div>
-              <div><dt>Duration support</dt><dd>{sourceTab === "cmip6" && cmipImportedReady ? cmipDailyScaling ? `Daily duration scaling (α=${cmipScalingExponent}); shorter durations are derived.` : "24-hour return levels only. No sub-daily results inferred." : activeNativeHourly ? "Native hourly records support 1–24-hour rolling totals; shorter durations are derived." : "Daily data support 24-hour totals. Any shorter duration is derived and must be checked against local evidence."}</dd></div>
-              <div><dt>Required next action</dt><dd>{shown.length ? "Check source quality, duration assumptions and model sensitivity; obtain independent hydrologic review before design adoption." : "Upload a suitable gauge record or retrieve precipitation, then run the analysis and export again."}</dd></div>
-            </dl>
-          </div>
-          <div className="report-table-wrap">
-            <table>
-              <caption>Decision summary · selected 24-hour return levels</caption>
-              <thead><tr><th scope="col">Return period (years)</th><th scope="col">Annual exceedance probability</th><th scope="col">Intensity (mm/hour)</th><th scope="col">24-hour depth (mm)</th></tr></thead>
-              <tbody>{[10, 50, 100, 250, 500].map((period) => {
-                const row = selected24h.find((item) => item.returnPeriodYears === period);
-                return <tr key={period}><th scope="row">{period}</th><td>{(100 / period).toFixed(1)}%</td><td>{row ? row.intensityMmHr.toFixed(2) : "Not estimated"}</td><td>{row ? (row.intensityMmHr * 24).toFixed(2) : "Not estimated"}</td></tr>;
-              })}</tbody>
-            </table>
-          </div>
-          <div className="report-kpis">
-            <div>
-              <span>10-year · 24-hour</span>
-              <strong>
-                {selected10
-                  ? `${selected10.intensityMmHr.toFixed(2)} mm/hr`
-                  : "—"}
-              </strong>
-              <small>
-                {sourceTab === "cmip6"
-                  ? "GCM-derived fitted intensity"
-                  : "Estimated intensity"}
-              </small>
-            </div>
-            <div>
-              <span>50-year · 24-hour</span>
-              <strong>
-                {selected50
-                  ? `${selected50.intensityMmHr.toFixed(2)} mm/hr`
-                  : "—"}
-              </strong>
-              <small>{activeFrequencyMethodLabel}</small>
-            </div>
-            <div>
-              <span>100-year · 24-hour</span>
-              <strong>
-                {selected100
-                  ? `${selected100.intensityMmHr.toFixed(2)} mm/hr`
-                  : "—"}
-              </strong>
-              <small>
-                {modelTab === "nonstationary"
-                  ? covariateLabel
-                  : "Stationary model"}
-              </small>
-            </div>
-            <div>
-              <span>250-year · 24-hour</span>
-              <strong>
-                {selected250
-                  ? `${selected250.intensityMmHr.toFixed(2)} mm/hr`
-                  : "—"}
-              </strong>
-              <small>Rare-event extrapolation</small>
-            </div>
-            <div>
-              <span>500-year · 24-hour</span>
-              <strong>
-                {selected500
-                  ? `${selected500.intensityMmHr.toFixed(2)} mm/hr`
-                  : "—"}
-              </strong>
-              <small>Highest uncertainty · 0.2% AEP</small>
-            </div>
-          </div>
         </section>
 
         <section id="report-scope" className="report-section">
@@ -9642,9 +9597,7 @@ export default function App() {
             <div>
               <h3>Which durations are measured?</h3>
               <p>
-                {activeNativeHourly
-                  ? "Native hourly data directly support fitted 1-, 2-, 3-, 6-, 12- and 24-hour durations. Values below one hour are derived."
-                  : "Daily data directly support 24 hours only. All shorter durations are derived with the stated scaling equation."}
+                {reportDurationBasis}
               </p>
             </div>
             <div>
@@ -9793,7 +9746,7 @@ export default function App() {
                   </td>
                   <td>
                     {sourceTab === "observed"
-                      ? `${activeObservedQc.completeness.toFixed(2)}% span completeness; ${activeObservedQc.missing} missing ${observedResolution} intervals; ${activeObservedQc.duplicates} duplicates; ${activeObservedQc.invalid} invalid values`
+                      ? `${activeObservedQc.completeness.toFixed(2)}% completeness between first and last accepted dates; ${activeObservedQc.missing} missing ${observedResolution} intervals${observedResolution === "daily" && dailyUploadAudit ? ". See the workbook import audit for rejected and duplicate rows." : `; ${activeObservedQc.duplicates} duplicates; ${activeObservedQc.invalid} invalid values`}`
                       : sourceTab === "cmip6"
                         ? cmipImportedReady && cmipImportedWorkbook
                           ? `${cmipImportedWorkbook.validationStatus}; coordinates, labels, depth/intensity conversion, monotonicity, shared return periods and ensemble reconciliation checked`
@@ -9914,6 +9867,8 @@ export default function App() {
                   ? "Timestamps are normalized to whole local clock hours without timezone conversion and de-duplicated; non-numeric or negative precipitation is rejected; missing hours are counted; and only years with at least 90% hourly coverage are eligible. Rolling 1-, 2-, 3-, 6-, 12- and 24-hour annual maxima are calculated from consecutive observations."
                   : "Dates are sorted and de-duplicated, non-numeric or negative precipitation values are rejected, missing calendar days are counted, and only years with at least 90% expected daily coverage are eligible for the annual-maxima series. These automated checks support traceability but do not replace metadata-led homogenization of station relocations, instruments or observation practices, consistent with WMO climate-data guidance."}
           </p>
+          {sourceTab === "observed" && observedResolution === "daily" && dailyUploadAudit &&
+            <ReportDailyRecord rainfall={observedDailyRainfall} maxima={observedAms} upload={dailyUploadAudit} />}
         </section>
 
         <section id="report-methods" className="report-section section-break">
@@ -9927,7 +9882,10 @@ export default function App() {
           </p>
 
           {sourceTab === "cmip6" && <div className="report-decision"><h3>Bias-correction spatial support</h3><p>Selected mode: {spatialMode === "district" ? `${district} district spatial series` : "point/grid-cell series"}. {activeCmipBiasAudit ? activeCmipBiasAudit.correctionOrder : "No matching historical spatial calibration has been completed for this selection."}</p>{activeCmipBiasAudit && <><p>Historical GCM: {activeCmipBiasAudit.historicalSpatialMethod}; {activeCmipBiasAudit.historicalGridCells} cells. Reference: {activeCmipBiasAudit.referenceSpatialMethod}; {activeCmipBiasAudit.referenceGridCells ?? "not applicable"} cells.</p><p>Boundary: {activeCmipBiasAudit.boundarySource ?? "point"} · {activeCmipBiasAudit.boundaryCode ?? "not applicable"} · {activeCmipBiasAudit.boundaryVersion ?? "not applicable"}. Common eligible years: {activeCmipBiasAudit.commonEligibleYears.join(", ")}. Model member: {activeCmipBiasAudit.member}.</p></>}<p>District QDM corrects the aggregated daily series, not every grid cell independently. {cmipDailyScaling ? `Sub-daily curves use daily duration scaling with α=${cmipScalingExponent} after daily bias correction.` : "Only 24-hour results are displayed."} ERA5 district reference sampling is approximate and does not establish gauge accuracy. Point gauge duration ratios are not applied to district-average rainfall.</p></div>}
-          <ReportSteps imported={sourceTab === "cmip6" && cmipImportedReady} hourly={activeNativeHourly && modelTab === "stationary"} source={sourceLabel} />
+          {sourceTab === "cmip6" && reportHasDerivedDurations && cmipScalingMethod === "pakistan-imd" && <p>
+            The one-third reduction formula is a published empirical relation used in a Punjab study. The selected district may need its own short-duration validation. See section 3.2, equation 1 of <a href={PAKISTAN_IMD.url}>Haseeb et al. (2025)</a>.
+          </p>}
+          <ReportSteps imported={sourceTab === "cmip6" && cmipImportedReady} hourly={activeNativeHourly && modelTab === "stationary"} source={sourceLabel} durationBasis={reportDurationBasis} cmip={sourceTab === "cmip6"} />
           <div className="method-flow">
             <div>
               <span>01</span>
@@ -10499,9 +10457,7 @@ export default function App() {
                 <tr>
                   <th>Derived duration</th>
                   <td>
-                    {activeNativeHourly
-                      ? `The 5- to 30-minute values are calculated from the one-hour fit with exponent ${exponent.toFixed(2)}.`
-                      : `Values below 24 hours are calculated from the 24-hour fit with exponent ${exponent.toFixed(2)}.`}
+                    {reportDurationBasis}
                   </td>
                   <td>
                     Use only when the scaling equation is acceptable for the
@@ -10624,11 +10580,7 @@ export default function App() {
                       <td>{r.ciLower.toFixed(2)}</td>
                       <td>{r.ciUpper.toFixed(2)}</td>
                       <td>
-                        {sourceTab === "cmip6"
-                          ? cmipImportedReady
-                            ? "P10–P90 spread across model-specific corrected return levels"
-                            : "95% bootstrap on the fitted GCM annual-maxima sample"
-                          : "95% nonparametric bootstrap interval"}
+                        {reportIsEnsemble ? "P10–P90 across the included model return levels" : "95% bootstrap interval"}
                       </td>
                     </tr>
                   ))}
@@ -11379,10 +11331,10 @@ export default function App() {
           )}
         </section>
 
-        <section className="report-section section-break">
+        <section id="report-terms" className="report-section section-break">
           <h2>Appendix D · Essential terms</h2>
           <p>
-            Only the terms required to interpret the results are defined below.
+            Use this glossary alongside the results and diagnostics. Appendix A explains the equations and Appendix E expands source and method acronyms.
           </p>
           <div className="report-table-wrap">
             <table className="glossary-table">
