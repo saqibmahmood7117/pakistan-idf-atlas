@@ -51,7 +51,7 @@ import {
   type ReferenceYearBasis,
   type ResultRow,
 } from "../lib/observed-idf";
-import { parseObservedWorkbook } from "../lib/observed-workbook";
+import { parseObservedWorkbook, readObservedWorkbook } from "../lib/observed-workbook";
 import { parseCovariateWorkbook } from "../lib/covariate-workbook";
 import {
   ONLINE_COVARIATE_CONFIG,
@@ -4446,12 +4446,8 @@ export default function App() {
   ) {
     if (!file) return;
     try {
-      const XLSX = await import("xlsx"),
-        wb = XLSX.read(await file.arrayBuffer(), {
-          type: "array",
-          cellDates: true,
-        });
-      const parsed = parseObservedWorkbook(XLSX, wb, { preferredResolution }),
+      const XLSX = await import("xlsx");
+      const parsed = readObservedWorkbook(XLSX, await file.arrayBuffer(), { preferredResolution }),
         records =
           parsed.resolution === "hourly"
             ? parsed.hourlyRecords
@@ -4461,7 +4457,7 @@ export default function App() {
       const { resolution, sheets } = parsed;
       setObservedResolution(resolution);
       setSpatialMode("point");
-      if (resolution === "hourly") setModelTab("stationary");
+      setModelTab("stationary");
       if (resolution === "hourly") {
         setHourlyRaw(parsed.hourlyRecords);
         setRaw([]);
@@ -6739,7 +6735,10 @@ export default function App() {
             className={sourceTab === "observed" ? "active" : ""}
             onClick={() => {
               setSourceTab("observed");
-              if (modelTab === "nonstationary") setMethod("gev");
+              if (sourceTab !== "observed") {
+                setModelTab("stationary");
+                if (modelTab === "nonstationary") setMethod("gev");
+              }
             }}
           >
             ▤ Observed Excel data
@@ -6795,13 +6794,17 @@ export default function App() {
                     ref={input}
                     type="file"
                     accept=".xlsx,.xls,.csv"
-                    onChange={(e) => upload(e.target.files?.[0])}
+                    onChange={(e) => {
+                      const file = e.currentTarget.files?.[0];
+                      e.currentTarget.value = "";
+                      void upload(file);
+                    }}
                   />
                   <strong>Excel / CSV daily precipitation</strong>
                   <p>
-                    Automatically scans every worksheet and detects Date,
-                    Date-Time, or separate Year/Month/Day/Hour columns. Daily or
-                    hourly mode is chosen automatically.
+                    Use one daily total in mm per date. The importer reads Date,
+                    Timestamp, or separate Year, Month and Day columns. Enter 0
+                    for a dry day and leave missing rainfall blank.
                   </p>
                   <button onClick={() => input.current?.click()}>
                     Auto-read entire workbook
@@ -6813,7 +6816,12 @@ export default function App() {
                   >
                     Download selected daily data
                   </button>
-                  <small>{message}</small>
+                  <small role="status">{message}</small>
+                  <small>
+                    {raw.length > 0 ? `${dailyQc.eligibleYears} eligible years in the selected date range. ` : ""}
+                    Stationary IDF requires 8 years with at least 90% of daily readings in each year.
+                  </small>
+                  {stationaryObserved.length > 0 && <a href="#curves">View IDF curves</a>}
                 </div>
                 <div className="formgrid">
                   <label>

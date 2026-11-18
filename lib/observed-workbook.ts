@@ -23,8 +23,21 @@ export type ObservedWorkbookResult={
 
 export type ObservedWorkbookOptions={preferredResolution?:"daily"|"hourly"};
 
+export function readObservedWorkbook(XLSX: typeof Xlsx, bytes: ArrayBuffer, options: ObservedWorkbookOptions = {}) {
+ // CSV date strings need to reach the date-order detector before SheetJS coerces them.
+ const workbook = XLSX.read(bytes, {type: "array", raw: true});
+ return parseObservedWorkbook(XLSX, workbook, options);
+}
+
 const normalizeHeader=(value:unknown)=>String(value??"").trim().toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
-const asNumber=(value:unknown)=>{if(typeof value==="number")return value;if(typeof value!=="string")return NaN;const text=value.trim().replace(/,/g,"");if(/^t(?:race)?$/i.test(text))return 0;return Number(text)};
+const asNumber = (value: unknown) => {
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return NaN;
+  const text = value.trim();
+  if (!text) return NaN;
+  if (/^t(?:race)?$/i.test(text)) return 0;
+  return Number(text.replace(/,/g, ""));
+};
 const integer=(value:unknown)=>{const n=asNumber(value);return Number.isFinite(n)?Math.trunc(n):NaN};
 const pad=(value:number)=>String(value).padStart(2,"0");
 const validParts=(p:DateParts)=>Number.isInteger(p.year)&&p.year>=1800&&p.year<=2200&&p.month>=1&&p.month<=12&&p.day>=1&&p.day<=new Date(Date.UTC(p.year,p.month,0)).getUTCDate()&&p.hour>=0&&p.hour<=24&&p.minute>=0&&p.minute<60&&p.second>=0&&p.second<60;
@@ -35,7 +48,7 @@ const hourKey=(p:DateParts)=>`${dateKey(p)}T${pad(p.hour)}:00`;
 
 function precipitationScore(header:string){
  if(!header||/probability|forecast/.test(header))return 0;
- if(/^(prectotcorr|prectot|prcp|ppt|rr|p)$/.test(header))return 120;
+ if(/^(prectotcorr|prectot|prcp|ppt|rr|rf|p)(?: mm)?$/.test(header))return 120;
  if(/precipitation|rainfall|\bprecip\b|\brain\b/.test(header))return 110;
  return 0;
 }
@@ -81,6 +94,7 @@ function clockFrom(value:unknown,kind:"time"|"hour"|"minute"){
  }
  const text=String(value??"").trim();
  if(!text)return null;
+ if (/^0?\.\d+$/.test(text) && kind !== "minute") return clockFrom(Number(text),kind);
  const ampm=text.match(/^(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?\s*([ap]m)$/i);
  if(ampm){let hour=Number(ampm[1])%12;if(ampm[4].toLowerCase()==="pm")hour+=12;return {hour,minute:Number(ampm[2]??0),second:Number(ampm[3]??0)}}
  const colon=text.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/);
@@ -95,11 +109,20 @@ function clockFrom(value:unknown,kind:"time"|"hour"|"minute"){
  return null;
 }
 
-function partsFrom(value:unknown,order:DateOrder,XLSX:typeof Xlsx):DateParts|null{
+function partsFrom(value:unknown,order:DateOrder,XLSX:typeof Xlsx,date1904=false):DateParts|null{
  if(value instanceof Date)return normalizeParts({year:value.getUTCFullYear(),month:value.getUTCMonth()+1,day:value.getUTCDate(),hour:value.getUTCHours(),minute:value.getUTCMinutes(),second:value.getUTCSeconds(),hasTime:value.getUTCHours()!==0||value.getUTCMinutes()!==0||value.getUTCSeconds()!==0});
- if(typeof value==="number"&&value>31){const xlsxModule=XLSX as typeof Xlsx&{default?:typeof Xlsx},parsed=(xlsxModule.SSF??xlsxModule.default?.SSF)?.parse_date_code(value);if(parsed)return normalizeParts({year:parsed.y,month:parsed.m,day:parsed.d,hour:parsed.H,minute:parsed.M,second:Math.floor(parsed.S),hasTime:parsed.H!==0||parsed.M!==0||parsed.S!==0})}
  const text=String(value??"").trim();
  if(!text)return null;
+ // Keep compact dates such as 20240101 out of the Excel serial-date parser.
+ if (/^\d{1,6}(?:\.\d+)?$/.test(text)) {
+  const serial = Number(text);
+  if (serial <= 120_000 && (serial > 31 || date1904)) {
+   const xlsxModule = XLSX as typeof Xlsx & {default?: typeof Xlsx};
+   const parsed = (xlsxModule.SSF ?? xlsxModule.default?.SSF)?.parse_date_code(serial, {date1904});
+   if (parsed) return normalizeParts({year:parsed.y,month:parsed.m,day:parsed.d,hour:parsed.H,minute:parsed.M,second:Math.floor(parsed.S),hasTime:parsed.H!==0||parsed.M!==0||parsed.S!==0});
+  }
+  return null;
+ }
  const iso=text.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:[T\s]+(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?\s*([ap]m)?)?/i);
  if(iso){let hour=Number(iso[4]??0);if(iso[7]){hour%=12;if(iso[7].toLowerCase()==="pm")hour+=12}return normalizeParts({year:Number(iso[1]),month:Number(iso[2]),day:Number(iso[3]),hour,minute:Number(iso[5]??0),second:Number(iso[6]??0),hasTime:iso[4]!=null})}
  const compact=text.match(/^(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2})?(\d{2})?)?$/);
@@ -113,13 +136,18 @@ function partsFrom(value:unknown,order:DateOrder,XLSX:typeof Xlsx):DateParts|nul
  return normalizeParts({year:parsed.getFullYear(),month:parsed.getMonth()+1,day:parsed.getDate(),hour:parsed.getHours(),minute:parsed.getMinutes(),second:parsed.getSeconds(),hasTime:/(?:T|\s)\d{1,2}:?\d{0,2}/.test(text)});
 }
 
-function partsFromRow(row:unknown[],c:Columns,order:DateOrder,XLSX:typeof Xlsx,fallbackDate:DateParts|null){
+function partsFromRow(row:unknown[],c:Columns,order:DateOrder,XLSX:typeof Xlsx,fallbackDate:DateParts|null,date1904:boolean){
  let parts:DateParts|null=null;
  if(c.year>=0&&c.month>=0&&c.day>=0)parts=normalizeParts({year:integer(row[c.year]),month:integer(row[c.month]),day:integer(row[c.day]),hour:0,minute:0,second:0,hasTime:false});
  else if(c.year>=0&&c.dayOfYear>=0){const year=integer(row[c.year]),dayOfYear=integer(row[c.dayOfYear]),date=new Date(Date.UTC(year,0,dayOfYear));if(dayOfYear>=1&&date.getUTCFullYear()===year)parts={year,month:date.getUTCMonth()+1,day:date.getUTCDate(),hour:0,minute:0,second:0,hasTime:false}}
- else if(c.combinedTime>=0)parts=partsFrom(row[c.combinedTime],order,XLSX);
- else if(c.date>=0)parts=partsFrom(row[c.date],order,XLSX);
- if(!parts&&fallbackDate)parts={...fallbackDate,hour:0,minute:0,second:0,hasTime:false};
+ else if(c.combinedTime>=0)parts=partsFrom(row[c.combinedTime],order,XLSX,date1904);
+ else if(c.date>=0)parts=partsFrom(row[c.date],order,XLSX,date1904);
+ // Carry a date forward only for a dated table with separate clock values.
+ // A missing date on a daily row must never overwrite the previous day's rain.
+ if(!parts&&fallbackDate&&c.date>=0&&c.year<0&&c.combinedTime<0&&
+    [c.time,c.hour,c.minute].some(index=>index>=0&&String(row[index]??"").trim()!=="")){
+  parts={...fallbackDate,hour:0,minute:0,second:0,hasTime:false};
+ }
  if(!parts)return null;
  const clockIndex=c.time>=0?c.time:c.hour,clockKind=c.time>=0?"time":"hour";
  if(clockIndex>=0&&String(row[clockIndex]??"").trim()!==""){
@@ -135,7 +163,7 @@ function partsFromRow(row:unknown[],c:Columns,order:DateOrder,XLSX:typeof Xlsx,f
  return normalizeParts(parts);
 }
 
-function findHeader(rows:unknown[][],XLSX:typeof Xlsx){
+function findHeader(rows:unknown[][],XLSX:typeof Xlsx,date1904:boolean){
  let best:{index:number;columns:Columns;order:DateOrder;score:number}|null=null;
  for(let index=0;index<Math.min(rows.length,200);index++){
   const columns=detectColumns(rows[index]);
@@ -144,7 +172,7 @@ function findHeader(rows:unknown[][],XLSX:typeof Xlsx){
   let valid=0,fallbackDate:DateParts|null=null;
   const distinctTimestamps=new Set<string>();
   for(const row of rows.slice(index+1,index+501)){
-   const precipitation=asNumber(row[columns.precipitation]),explicitDate=columns.combinedTime>=0?row[columns.combinedTime]:columns.date>=0?row[columns.date]:columns.year>=0?row[columns.year]:"",parts=partsFromRow(row,columns,order,XLSX,String(explicitDate??"").trim()===""?fallbackDate:null);
+   const precipitation=asNumber(row[columns.precipitation]),explicitDate=columns.combinedTime>=0?row[columns.combinedTime]:columns.date>=0?row[columns.date]:columns.year>=0?row[columns.year]:"",parts=partsFromRow(row,columns,order,XLSX,String(explicitDate??"").trim()===""?fallbackDate:null,date1904);
    if(Number.isFinite(precipitation)&&precipitation>=0&&parts){valid++;if(String(explicitDate??"").trim()!=="")fallbackDate={...parts,hour:0,minute:0,second:0,hasTime:false};const hourly=columns.combinedTime>=0||columns.time>=0||columns.hour>=0||columns.minute>=0||parts.hasTime;distinctTimestamps.add(hourly?minuteKey(parts):dateKey(parts))}
   }
   const score=distinctTimestamps.size*1_000_000+valid*1000+schemaScore(columns);
@@ -175,12 +203,13 @@ function recoverHourlyCounter(rows:unknown[][],startIndex:number,columns:Columns
 
 export function parseObservedWorkbook(XLSX:typeof Xlsx,workbook:Xlsx.WorkBook,options:ObservedWorkbookOptions={}):ObservedWorkbookResult{
  const daily:DailySource[]=[],hourly:HourlySource[]=[];
+ const date1904=Boolean(workbook.Workbook?.WBProps?.date1904);
  let candidateRows=0,parsedRows=0,recoveredCounterRows=0;
  for(const sheetName of workbook.SheetNames){
   const sheet=workbook.Sheets[sheetName];
   if(!sheet)continue;
   const rows=XLSX.utils.sheet_to_json<unknown[]>(sheet,{header:1,raw:true,defval:""});
-  const header=findHeader(rows,XLSX);
+  const header=findHeader(rows,XLSX,date1904);
   if(!header)continue;
   const {index,columns,order}=header,sheetDaily:DailySource[]=[],sheetHourly:Array<Omit<HourlySource,"subhourly">&{minute:number;second:number}>=[];
   const counterRecovery=options.preferredResolution==="hourly"?recoverHourlyCounter(rows,index,columns,sheetName):null;
@@ -192,7 +221,7 @@ export function parseObservedWorkbook(XLSX:typeof Xlsx,workbook:Xlsx.WorkBook,op
    const precipitationMm=asNumber(row[columns.precipitation]);
    if(!Number.isFinite(precipitationMm)||precipitationMm<0)continue;
    const explicitDate=columns.combinedTime>=0?row[columns.combinedTime]:columns.date>=0?row[columns.date]:columns.year>=0?row[columns.year]:"";
-   const parts=partsFromRow(row,columns,order,XLSX,String(explicitDate??"").trim()===""?fallbackDate:null);
+   const parts=partsFromRow(row,columns,order,XLSX,String(explicitDate??"").trim()===""?fallbackDate:null,date1904);
    if(!parts)continue;
    if(String(explicitDate??"").trim()!=="")fallbackDate={...parts,hour:0,minute:0,second:0,hasTime:false};
    parsedRows++;
@@ -200,12 +229,37 @@ export function parseObservedWorkbook(XLSX:typeof Xlsx,workbook:Xlsx.WorkBook,op
    if(isHourly)sheetHourly.push({timestamp:minuteKey(parts),hourTimestamp:hourKey(parts),precipitationMm,sheet:sheetName,minute:parts.minute,second:parts.second});
    else sheetDaily.push({date:dateKey(parts),precipitationMm,qc:`accepted · ${sheetName}`,sheet:sheetName});
   }
+  // A daily gauge total may carry a fixed observation clock (for example 08:00).
+  const hourlyLabel = /\bhourly\b|\bhour ending\b|\bhour beginning\b/.test(`${normalizeHeader(sheetName)} ${columns.headerText}`);
+  const dailyLabel = /\bdaily\b|\b24 (?:h|hr|hour)\b/.test(`${normalizeHeader(sheetName)} ${columns.headerText}`);
+  const datedClocks = new Map<string,string>();
+  let multipleTimesPerDay = false;
+  for (const row of sheetHourly) {
+   const date = row.timestamp.slice(0, 10);
+   const clock = `${row.timestamp.slice(11)}:${pad(row.second)}`;
+   const previous = datedClocks.get(date);
+   if (previous !== undefined && previous !== clock) multipleTimesPerDay = true;
+   datedClocks.set(date, clock);
+  }
+  const fixedDailyClock = datedClocks.size >= 2 && new Set(datedClocks.values()).size === 1;
+  const dailyTimestamps = !hourlyLabel && !multipleTimesPerDay && (
+   dailyLabel || (options.preferredResolution !== "hourly" && fixedDailyClock)
+  );
+  if (dailyTimestamps) {
+   for (const row of sheetHourly) {
+    sheetDaily.push({date:row.timestamp.slice(0,10),precipitationMm:row.precipitationMm,sheet:sheetName,qc:`accepted daily total · ${sheetName}`});
+   }
+   sheetHourly.length = 0;
+  }
   const sheetHasSubhourly=columns.minute>=0||sheetHourly.some(row=>row.minute!==0||row.second!==0);
   for(const row of sheetHourly)hourly.push({timestamp:row.timestamp,hourTimestamp:row.hourTimestamp,precipitationMm:row.precipitationMm,sheet:row.sheet,subhourly:sheetHasSubhourly});
   for(const row of sheetDaily)daily.push(row);
  }
- if(!daily.length&&!hourly.length)throw new Error("No valid precipitation table was found. Supported layouts include Date/Timestamp, Date + Time, and Year + Month + Day + Hour columns.");
- const resolution:"daily"|"hourly"=hourly.length>daily.length?"hourly":"daily";
+ if(!daily.length&&!hourly.length)throw new Error("No valid precipitation rows were found. For daily data, use Date and Rainfall (mm), or Year, Month, Day and Rainfall (mm). Enter 0 for a measured dry day and leave missing rainfall blank.");
+ const preferred = options.preferredResolution;
+ const preferredRows = preferred === "daily" ? daily : hourly;
+ const resolution = preferred && preferredRows.length
+  ? preferred : hourly.length>daily.length ? "hourly" : "daily";
  let duplicateRows=0,aggregatedSubhourlyRows=0;
  const dailyRecords:DailyRecord[]=[],hourlyRecords:HourlyRecord[]=[];
  let sheets:string[]=[];
