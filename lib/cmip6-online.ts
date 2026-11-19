@@ -6,6 +6,8 @@ export const CMIP6_CATALOG_BASE =
   "https://ds.nccs.nasa.gov/thredds/catalog/AMES/NEX/GDDP-CMIP6";
 export const CMIP6_NCSS_BASE =
   "https://ds.nccs.nasa.gov/thredds/ncss/grid/AMES/NEX/GDDP-CMIP6";
+export const CMIP6_NCSS_SERVICE = "NCCS THREDDS NetCDF Subset Service";
+export const CMIP6_ARCHIVE_SERVICE = "NASA Open Data archive · verified v2.0 regional subset";
 
 export type Cmip6Model = (typeof CMIP6_MODELS)[number];
 
@@ -16,13 +18,14 @@ export type Cmip6Catalogue = {
   availableMembers: string[];
   selectedMember: string;
   files: Array<{ year: number; fileName: string }>;
+  retrievalService?: string;
 };
 
 export type Cmip6ExtractionMetadata = {
   dataset: "NASA NEX-GDDP-CMIP6 v2";
   provider: "NASA Center for Climate Simulation";
   providerUrl: string;
-  retrievalService: "NCCS THREDDS NetCDF Subset Service";
+  retrievalService: string;
   model: Cmip6Model;
   modelFolder: string;
   scenario: Cmip6Scenario;

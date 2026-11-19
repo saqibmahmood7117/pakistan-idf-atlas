@@ -100,6 +100,7 @@ import {
   normalizeBoundaryName,
 } from "../lib/district-boundaries";
 import {
+  CMIP6_NCSS_SERVICE,
   type Cmip6Catalogue,
   type Cmip6ExtractionMetadata,
 } from "../lib/cmip6-online";
@@ -150,6 +151,7 @@ type WatershedGeometryResponse = {
   error?: string;
 };
 type Cmip6AnnualResponse = {
+  year: number;
   records: DailyRecord[];
   extractedGridCells: number;
   returnedLatitude?: number;
@@ -158,6 +160,9 @@ type Cmip6AnnualResponse = {
   sourceTimeUnits?: string;
   sourceCalendar?: string;
   calendarConversion?: string;
+  retrievalService?: string;
+  providerSubsetUrl?: string;
+  spatialCells?: SpatialRainSnapshot["cells"];
 };
 type StoredCmipModel = ModelReturnLevels & {
   selectionKey: string;
@@ -196,6 +201,49 @@ const cmipEnsembleSelectionKey = ({
   ].join("|");
 const cmip6AnnualResponseCache = new Map<string, Cmip6AnnualResponse>();
 const CMIP6_ANNUAL_CACHE_LIMIT = 80;
+
+async function postCmip6<T>(payload: { action: "catalogue" | "year" } & Record<string, unknown>): Promise<T> {
+  const cacheKey = payload.action === "year" && !payload.spatialDate ? JSON.stringify(payload) : "";
+  const cached = cacheKey ? cmip6AnnualResponseCache.get(cacheKey) : undefined;
+  if (cached) return cached as T;
+
+  let response: Response;
+  try {
+    response = await fetch("/api/cmip6-precipitation", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(payload.action === "year" ? 125_000 : 45_000),
+    });
+  } catch {
+    const request = payload.action === "year" ? `the ${payload.year} subset` : "the model catalogue";
+    throw new Error(`The Atlas did not receive ${request}. Retry the same selection to reuse completed annual subsets in this tab.`);
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || typeof data.error === "string") {
+    throw new Error(data?.error ?? `The CMIP6 retrieval route returned HTTP ${response.status}.`);
+  }
+  if (cacheKey) {
+    if (data.year !== payload.year || !Array.isArray(data.records) || !data.records.length) {
+      throw new Error(`The ${payload.year} subset contained no matching daily records.`);
+    }
+    if (cmip6AnnualResponseCache.size >= CMIP6_ANNUAL_CACHE_LIMIT) {
+      const oldest = cmip6AnnualResponseCache.keys().next().value;
+      if (oldest) cmip6AnnualResponseCache.delete(oldest);
+    }
+    cmip6AnnualResponseCache.set(cacheKey, data as Cmip6AnnualResponse);
+  }
+  return data as T;
+}
+
+async function loadCmip6Batch(requests: Promise<Cmip6AnnualResponse>[]) {
+  // Let every request in the batch finish so a retry can reuse valid years.
+  const responses = await Promise.allSettled(requests);
+  return responses.map(response => {
+    if (response.status === "rejected") throw response.reason;
+    return response.value;
+  });
+}
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 const isGeoCollection = (value: unknown): value is GeoCollection => {
@@ -2956,9 +3004,7 @@ export default function App() {
     [cmipEra5ReferenceRaw, setCmipEra5ReferenceRaw] = useState<DailyRecord[]>([]),
     [cmipBiasReference, setCmipBiasReference] =
       useState<Cmip6BiasReference>("auto"),
-    [cmipHistoricalMessage, setCmipHistoricalMessage] = useState(
-      "Retrieve the matching 1985–2014 historical GCM grid cell. The atlas uses gauge observations when available, or can retrieve ERA5 as a clearly labelled fallback reference.",
-    ),
+    [cmipHistoricalMessage, setCmipHistoricalMessage] = useState(""),
     [cmipHistoricalLoadedKey, setCmipHistoricalLoadedKey] = useState(""),
     [cmipBiasAudit, setCmipBiasAudit] = useState<CmipBiasSpatialAudit | null>(null),
     [cmipEnsembleModels, setCmipEnsembleModels] =
@@ -2971,7 +3017,7 @@ export default function App() {
     [cmipBusy, setCmipBusy] = useState(false),
     [cmipProgress, setCmipProgress] = useState(0),
     [cmipDataMessage, setCmipDataMessage] = useState(
-      "Choose an individual GCM, SSP, period and spatial extraction, then retrieve the actual daily pr series from NASA NCCS THREDDS. The retrieved values—not a screening multiplier—will be plotted and fitted.",
+      "Choose a GCM, scenario, period and location, then retrieve the NASA daily precipitation series to plot and fit the IDF curves.",
     ),
     [showCmipPrecipitationPlot, setShowCmipPrecipitationPlot] =
       useState(false),
@@ -3262,14 +3308,15 @@ export default function App() {
       () => annualMaxima(cmipQc.records, 1),
       [cmipQc.records],
     ),
-    currentCmipHistoricalKey = [
+    cmipHistoricalKeyForMember = (member: string) => [
       selectedCmipModel,
-      cmipMember,
+      member,
       cmipBiasReference,
       currentCmipSpatialKey,
       raw.length,
       hourlyRaw.length,
     ].join("|"),
+    currentCmipHistoricalKey = cmipHistoricalKeyForMember(cmipMember),
     activeCmipBiasAudit = cmipHistoricalLoadedKey === currentCmipHistoricalKey ? cmipBiasAudit : null,
     cmipHistoricalQc = assess(
       cmipHistoricalLoadedKey === currentCmipHistoricalKey
@@ -3412,10 +3459,11 @@ export default function App() {
     if(!spatialSeriesMatches || !matchedBoundaryFeature)throw Error("Retrieve a district series matching this boundary before mapping source values.");
     if(sourceTab === "online" && (onlineSource === "era5" || onlineSource === "ifs"))return retrieveOpenMeteoSpatial({source:onlineSource,resolution:onlineResolution,geometry:matchedBoundaryFeature.geometry,timestamp,fetchJson:url=>fetchOpenMeteoInBrowser(url)});
     if(sourceTab !== "cmip6" || !cmipMetadata)throw Error("Individual source-grid values are not available for this provider in the map. Its retrieved district mean remains available.");
-    const post=async(payload:Record<string,unknown>)=>{const response=await fetch("/api/cmip6-precipitation",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(125000)});const value=await response.json();if(!response.ok || value.error)throw Error(value.error??"NASA spatial retrieval failed.");return value;};
-    const year=Number(timestamp.slice(0,4)),catalogue=await post({action:"catalogue",model:cmipMetadata.model,scenario:cmipMetadata.scenario,member:cmipMetadata.member,startYear:year,endYear:year}) as Cmip6Catalogue;
+    const year = Number(timestamp.slice(0,4));
+    const selection = {model:cmipMetadata.model,scenario:cmipMetadata.scenario,member:cmipMetadata.member,mode:"district",geometry:matchedBoundaryFeature.geometry};
+    const catalogue = await postCmip6<Cmip6Catalogue>({action:"catalogue",...selection,startYear:year,endYear:year});
     const file=catalogue.files.find(file=>file.year===year);if(!file)throw Error("NASA has no matching spatial source file for this year.");
-    const value=await post({action:"year",model:cmipMetadata.model,scenario:cmipMetadata.scenario,member:catalogue.selectedMember,year,fileName:file.fileName,mode:"district",geometry:matchedBoundaryFeature.geometry,spatialDate:timestamp});
+    const value = await postCmip6<Cmip6AnnualResponse>({action:"year",...selection,member:catalogue.selectedMember,year,fileName:file.fileName,spatialDate:timestamp});
     if(!Array.isArray(value.spatialCells)||!value.spatialCells.length)throw Error("NASA returned no native spatial values for this date. Calendar gaps were not filled.");
     return {timestamp,cells:value.spatialCells,sourceUrl:value.providerSubsetUrl,source:`${cmipMetadata.model} · ${cmipMetadata.scenario} · ${cmipMetadata.member}`,retrievedAt:new Date().toISOString(),note:`Raw NASA source cells, selected using the same district-centre inclusion method as daily extraction. ${value.nearestCellFallback?"Nearest-cell fallback was required; this is not a district-resolved raster.":"Footprints are clipped to the district for display; no interpolation is applied."} District QDM is not cell-wise correction. Calendar: ${value.sourceCalendar}. Valid cells: ${value.spatialCells.length}/${value.extractedGridCells}.`};
   }
@@ -4474,61 +4522,26 @@ export default function App() {
     setCmipDataMessage(
       `Checking the NASA catalogue for ${selectedCmipModel}, ${CMIP6_SCENARIOS[cmipScenario].label}…`,
     );
-    const post = async (payload: Record<string, unknown>) => {
-      const cacheKey =
-        payload.action === "year" ? JSON.stringify(payload) : "";
-      const cached = cacheKey
-        ? cmip6AnnualResponseCache.get(cacheKey)
-        : undefined;
-      if (cached) return cached as unknown as Record<string, unknown>;
-      const timeoutMs = payload.action === "year" ? 125_000 : 45_000;
-      let response: Response;
-      try {
-        response = await fetch("/api/cmip6-precipitation", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-      } catch (error) {
-        throw new Error(
-          `The NASA request did not finish within ${Math.round(timeoutMs / 1000)} seconds. Retry the same selection; completed annual subsets remain cached in this browser tab. ${error instanceof Error ? error.message : ""}`.trim(),
-        );
-      }
-      const data = (await response.json().catch(() => ({
-        error: `The CMIP6 retrieval route returned HTTP ${response.status}.`,
-      }))) as Record<string, unknown>;
-      if (!response.ok || typeof data.error === "string")
-        throw new Error(
-          typeof data.error === "string"
-            ? data.error
-            : `The CMIP6 retrieval route returned HTTP ${response.status}.`,
-        );
-      if (cacheKey) {
-        if (cmip6AnnualResponseCache.size >= CMIP6_ANNUAL_CACHE_LIMIT) {
-          const oldest = cmip6AnnualResponseCache.keys().next().value;
-          if (oldest) cmip6AnnualResponseCache.delete(oldest);
-        }
-        cmip6AnnualResponseCache.set(
-          cacheKey,
-          data as unknown as Cmip6AnnualResponse,
-        );
-      }
-      return data;
+    const spatialRequest = {
+      mode: spatialMode,
+      latitude: spatialMode === "point" ? coordinateLat : undefined,
+      longitude: spatialMode === "point" ? coordinateLon : undefined,
+      geometry: spatialMode === "district" ? matchedBoundaryFeature?.geometry : undefined,
     };
     try {
-      const catalogue = (await post({
+      const catalogue = await postCmip6<Cmip6Catalogue>({
         action: "catalogue",
         model: selectedCmipModel,
         scenario: cmipScenario,
         member: cmipMember,
         startYear,
         endYear,
-      })) as unknown as Cmip6Catalogue;
+        ...spatialRequest,
+      });
       setCmipMember(catalogue.selectedMember);
       setCmipProgress(5);
       setCmipDataMessage(
-        `Retrieving ${catalogue.files.length} annual NASA subsets for ${catalogue.model}, ${catalogue.selectedMember}. District requests use NASA's supported NetCDF-3 subset format; completed years are cached in this browser tab.`,
+        `Retrieving ${catalogue.files.length} annual NASA subsets for ${catalogue.model}, ${catalogue.selectedMember} using ${catalogue.retrievalService ?? CMIP6_NCSS_SERVICE}. Completed years are cached in this tab.`,
       );
       const groups: DailyRecord[][] = [];
       let maximumGridCells = 0;
@@ -4538,32 +4551,21 @@ export default function App() {
       const sourceCalendars = new Set<string>();
       const sourceTimeUnits = new Set<string>();
       const calendarConversions = new Set<string>();
+      const retrievalServices = new Set<string>();
       const batchSize = spatialMode === "district" ? 2 : 4;
       for (let offset = 0; offset < catalogue.files.length; offset += batchSize) {
         const batch = catalogue.files.slice(offset, offset + batchSize);
-        const annual = await Promise.all(
-          batch.map(async (file) => {
-            const response = await post({
-              action: "year",
-              model: selectedCmipModel,
-              scenario: cmipScenario,
-              member: catalogue.selectedMember,
-              year: file.year,
-              fileName: file.fileName,
-              mode: spatialMode,
-              latitude:
-                spatialMode === "point" ? coordinateLat : undefined,
-              longitude:
-                spatialMode === "point" ? coordinateLon : undefined,
-              geometry:
-                spatialMode === "district"
-                  ? matchedBoundaryFeature?.geometry
-                  : undefined,
-            });
-            return response as Cmip6AnnualResponse;
-          }),
-        );
+        const annual = await loadCmip6Batch(batch.map(file => postCmip6<Cmip6AnnualResponse>({
+          action: "year",
+          model: selectedCmipModel,
+          scenario: cmipScenario,
+          member: catalogue.selectedMember,
+          year: file.year,
+          fileName: file.fileName,
+          ...spatialRequest,
+        })));
         for (const response of annual) {
+          retrievalServices.add(response.retrievalService ?? CMIP6_NCSS_SERVICE);
           groups.push(response.records);
           maximumGridCells = Math.max(
             maximumGridCells,
@@ -4602,7 +4604,7 @@ export default function App() {
         provider: "NASA Center for Climate Simulation",
         providerUrl:
           "https://www.nccs.nasa.gov/data-collections/nex-gddp-cmip6/",
-        retrievalService: "NCCS THREDDS NetCDF Subset Service",
+        retrievalService: [...retrievalServices].join(" + "),
         model: selectedCmipModel,
         modelFolder: catalogue.modelFolder,
         scenario: cmipScenario,
@@ -4667,7 +4669,7 @@ export default function App() {
       setShowCmipPrecipitationPlot(true);
       setCmipProgress(100);
       setCmipDataMessage(
-        `Retrieved ${records.length.toLocaleString()} actual daily pr values from NASA for ${selectedCmipModel}, ${catalogue.selectedMember}, ${CMIP6_SCENARIOS[cmipScenario].label}, ${cmipPeriod}. The atlas converted kg m⁻² s⁻¹ to mm/day, applied the reported ${metadata.sourceCalendar} calendar rule without adding synthetic rainfall, ran QC and annual-maxima extraction, fitted the selected distributions, generated the 24-hour IDF and opened the precipitation plot.`,
+        `Retrieved ${records.length.toLocaleString()} actual daily pr values via ${metadata.retrievalService} for ${selectedCmipModel}, ${catalogue.selectedMember}, ${CMIP6_SCENARIOS[cmipScenario].label}, ${cmipPeriod}. The atlas converted kg m⁻² s⁻¹ to mm/day, applied the reported ${metadata.sourceCalendar} calendar rule without adding synthetic rainfall, ran QC and annual-maxima extraction, fitted the selected distributions, generated the 24-hour IDF and opened the precipitation plot.`,
       );
       setTimeout(
         () =>
@@ -4724,17 +4726,6 @@ export default function App() {
     setCmipHistoricalLoadedKey("");
     setCmipBiasAudit(null);
     setCmipHistoricalMessage(`Retrieving ${shouldUseEra5 ? "ERA5 reference and " : ""}${selectedCmipModel} historical 1985–2014 for ${spatialMode === "district" ? `${district} district polygon` : "the project grid cell"}…`);
-    const post = async (payload: Record<string, unknown>) => {
-      const response = await fetch("/api/cmip6-precipitation", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(payload.action === "year" ? 125_000 : 45_000),
-      });
-      const data = await response.json() as Record<string, unknown>;
-      if (!response.ok || typeof data.error === "string") throw new Error(String(data.error ?? `Historical CMIP6 request returned HTTP ${response.status}.`));
-      return data;
-    };
     try {
       let referenceCount = observedAms.length;
       let referenceRecords = gaugeHistoricalQc.records;
@@ -4793,18 +4784,23 @@ export default function App() {
         setCmipEra5ReferenceRaw(era5Records);
         referenceCount = era5Qc.eligibleYears;
       }
-      const catalogue = await post({ action: "catalogue", model: selectedCmipModel, scenario: "historical", member: cmipMember, startYear: 1985, endYear: 2014 }) as unknown as Cmip6Catalogue;
+      const catalogue = await postCmip6<Cmip6Catalogue>({
+        action: "catalogue", model: selectedCmipModel, scenario: "historical",
+        member: cmipMember, startYear: 1985, endYear: 2014, ...spatialRequest,
+      });
       if (cmipMetadata && cmipDataReady && catalogue.selectedMember !== cmipMetadata.member) throw new Error("Historical and future GCM realizations differ; retrieve matching model members before correction.");
       const groups: DailyRecord[][] = [];
       let historicalGridCells = 0;
+      const historicalServices = new Set<string>();
       const batchSize = spatialMode === "district" ? 2 : 5;
       for (let offset = 0; offset < catalogue.files.length; offset += batchSize) {
         const batch = catalogue.files.slice(offset, offset + batchSize);
-        const responses = await Promise.all(batch.map(file => post({
+        const responses = await loadCmip6Batch(batch.map(file => postCmip6<Cmip6AnnualResponse>({
           action: "year", model: selectedCmipModel, scenario: "historical", member: catalogue.selectedMember,
           year: file.year, fileName: file.fileName, ...spatialRequest,
-        }) as Promise<Record<string, unknown>>));
-        for (const response of responses as unknown as Cmip6AnnualResponse[]) {
+        })));
+        for (const response of responses) {
+          historicalServices.add(response.retrievalService ?? CMIP6_NCSS_SERVICE);
           if (spatialMode === "district" && response.nearestCellFallback) throw new Error("The historical subset fell back to a single nearest grid cell. It cannot be used as a district spatial bias-correction series.");
           historicalGridCells = Math.max(historicalGridCells, response.extractedGridCells);
           groups.push(response.records);
@@ -4821,6 +4817,7 @@ export default function App() {
         boundarySource:spatialMode === "district" ? matchedBoundaryIdentity?.source : undefined,
         boundaryVersion:spatialMode === "district" ? matchedBoundaryIdentity?.version : undefined,
         member:catalogue.selectedMember,historicalGridCells,
+        historicalRetrievalService:[...historicalServices].join(" + "),
         historicalSpatialMethod:spatialMode === "district" ? "District daily spatial mean over selected polygon using the same NASA cell-selection and latitude-area weighting rule as the future series" : "NASA NCSS grid-as-point extraction",
         referenceSpatialMethod:referenceMetadata?.spatialMethod ?? "Uploaded point gauge",
         referenceGridCells:referenceMetadata?.extractedGridCells,
@@ -4829,7 +4826,8 @@ export default function App() {
       };
       setCmipBiasAudit(audit);
       setCmipHistoricalRaw(records);
-      setCmipHistoricalLoadedKey(currentCmipHistoricalKey);
+      setCmipMember(catalogue.selectedMember);
+      setCmipHistoricalLoadedKey(cmipHistoricalKeyForMember(catalogue.selectedMember));
       setCmipHistoricalMessage(`Historical comparison ready for ${spatialMode === "district" ? `${district} district spatial series` : "the project grid cell"}: ${matched.years.length} common eligible years; ${referenceCount} reference annual maxima. ${audit.correctionOrder} Correction is applied when a matching future series is available. ${shouldUseEra5 ? "This is reanalysis-corrected, not gauge-corrected." : ""}`);
     } catch (error) {
       setCmipHistoricalMessage(error instanceof Error ? error.message : "Historical GCM retrieval failed.");
@@ -7588,9 +7586,9 @@ export default function App() {
               <label>
                 Bias-correction reference
                 <select value={cmipBiasReference} onChange={event => { setCmipBiasReference(event.target.value as Cmip6BiasReference); setCmipHistoricalRaw([]); setCmipEra5ReferenceRaw([]); setCmipHistoricalLoadedKey(""); setCmipHistoricalMessage("Reference changed. Retrieve the historical GCM and selected reference again before applying correction."); }} disabled={cmipBusy}>
-                  <option value="auto">Automatic · gauge first, ERA5 if unavailable</option>
+                  <option value="auto">{spatialMode === "district" ? "Automatic · ERA5 district spatial series" : "Automatic · gauge first, ERA5 if unavailable"}</option>
                   <option value="gauge" disabled={spatialMode === "district"}>Observed gauge only{spatialMode === "district" ? " · point mode only" : ""}</option>
-                  <option value="era5">ERA5 reanalysis</option>
+                  <option value="era5">{spatialMode === "district" ? "ERA5 district spatial series" : "ERA5 reanalysis"}</option>
                 </select>
               </label>
               <div className="gcm-validation-actions">
@@ -7601,14 +7599,16 @@ export default function App() {
               </div>
               <div className="gcm-evidence-grid">
                 <div><span>Project location</span><strong>{spatialMode === "district" ? matchedBoundaryFeature ? `${district} district spatial series · ${matchedBoundaryIdentity?.code}` : "Load the selected district polygon" : cmipCoordinateReady ? `Verified project grid cell · ${coordinateLat.toFixed(5)}, ${coordinateLon.toFixed(5)}` : "Point coordinates inside the project coverage required"}</strong></div>
-                <div><span>Historical overlap</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.historicalPeriod : `${cmipMatchedBaseline.years.length} common years · ${cmipHistoricalQc.eligibleYears || 0} GCM years · ${cmipReferenceAms.length} ${cmipReferenceLabel} years`}</strong></div>
+                <div><span>Historical overlap</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.historicalPeriod : activeCmipBiasAudit ? `${cmipMatchedBaseline.years.length} common years · ${cmipHistoricalQc.eligibleYears} GCM years · ${cmipReferenceAms.length} ${cmipReferenceLabel} years` : "Awaiting baseline retrieval · 1985–2014"}</strong></div>
                 <div><span>Daily bias correction</span><strong>{cmipImportedReady ? `Precomputed and validated in workbook · ${cmipReferenceLabel}` : cmipQdmReady ? `12 monthly QDM groups · ${useEra5BiasReference ? "reanalysis-corrected" : "gauge-corrected"}` : `Pending historical + ${cmipReferenceLabel} comparison`}</strong></div>
-                <div><span>Sub-daily basis</span><strong>{cmipDailyScaling ? `Daily duration scaling · α=${cmipScalingExponent} · derived sub-daily curves` : "Daily product · 24-hour results only"}</strong></div>
+                <div><span>Sub-daily basis</span><strong>{cmipDailyScaling ? `Daily duration scaling · α = ${cmipScalingMethod === "pakistan-imd" ? "1/3" : cmipScalingExponent} · derived sub-daily curves` : "Daily product · 24-hour results only"}</strong></div>
                 <div><span>Active ensemble</span><strong>{cmipActiveEnsembleModels.length} models stored · {cmipRecommendedStored}/10 recommended · minimum 3</strong></div>
-                <div><span>Record status</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.validationStatus : projectionEvidenceStatus(cmipStationarity.n, 500)}</strong></div>
+                <div><span>Record status</span><strong>{cmipImportedReady ? cmipImportedWorkbook?.validationStatus : cmipDataReady ? projectionEvidenceStatus(cmipStationarity.n, 500) : "Awaiting future GCM retrieval"}</strong></div>
               </div>
-              <p className="gcm-validation-message">{cmipHistoricalMessage}</p>
-              {activeCmipBiasAudit && <p className="gcm-validation-message">{activeCmipBiasAudit.correctionOrder} Reference: {activeCmipBiasAudit.referenceSpatialMethod}. Common baseline years: {activeCmipBiasAudit.commonEligibleYears.join(", ")}. Boundary: {activeCmipBiasAudit.boundaryCode ?? "point"} · {activeCmipBiasAudit.boundaryVersion ?? "not applicable"}.</p>}
+              <p className="gcm-validation-message" role="status">{cmipHistoricalMessage || (spatialMode === "district"
+                ? "Retrieve the matching historical GCM and ERA5 daily series over the selected district for 1985–2014."
+                : "Retrieve the matching historical GCM grid cell and bias-correction reference for 1985–2014.")}</p>
+              {activeCmipBiasAudit && <p className="gcm-validation-message">{activeCmipBiasAudit.correctionOrder} Historical GCM via {activeCmipBiasAudit.historicalRetrievalService}. Reference via {activeCmipBiasAudit.referenceSpatialMethod}. Common baseline years {activeCmipBiasAudit.commonEligibleYears.join(", ")}. Boundary {activeCmipBiasAudit.boundaryCode ?? "point"} · {activeCmipBiasAudit.boundaryVersion ?? "not applicable"}.</p>}
               {spatialMode === "district" && cmipBiasReference === "gauge" && <p className="tc-caution">Select Automatic or ERA5. The uploaded point gauge is not a district spatial reference.</p>}
               {cmipImportedReady && cmipImportedWorkbook && (
                 <details className="qdm-monthly-audit" open>
@@ -7713,6 +7713,10 @@ export default function App() {
                     <dd>
                       {cmipMetadata.sourceCalendar} · calendar rule recorded
                     </dd>
+                  </div>
+                  <div>
+                    <dt>Retrieval service</dt>
+                    <dd>{cmipMetadata.retrievalService}</dd>
                   </div>
                 </dl>
               )}

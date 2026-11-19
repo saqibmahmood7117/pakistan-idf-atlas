@@ -42,6 +42,7 @@ export type CmipBiasSpatialAudit = {
   boundaryVersion?: string;
   member: string;
   historicalGridCells: number;
+  historicalRetrievalService?: string;
   historicalSpatialMethod: string;
   referenceSpatialMethod: string;
   referenceGridCells?: number;

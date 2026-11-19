@@ -14,3 +14,55 @@ test('NASA spatial API requests one real date, returns native cells, and exclude
 test('NASA spatial API rejects invalid or mismatched dates before upstream retrieval',async()=>{
  for(const spatialDate of ['2041-02-30','2042-01-01',5]){const response=await call({...body,spatialDate});assert.equal(response.status,400);}
 });
+
+test('the Peshawar recovery cache supplies the matching historical and future annual files during a NASA outage', async () => {
+ const boundaries = JSON.parse(readFileSync(new URL('../public/data/uploaded-districts.geojson', import.meta.url)));
+ const geometry = boundaries.features.find(feature => feature.properties.adm2_name === 'Peshawar').geometry;
+ const selection = {model:'ACCESS-CM2',member:'r1i1p1f1',mode:'district',geometry};
+ const original = globalThis.fetch;
+ let upstreamRequests = 0;
+ try {
+  globalThis.fetch = async () => { upstreamRequests++; return new Response('unavailable', {status:500}); };
+  for (const [scenario, startYear, endYear] of [['historical',1985,2014],['ssp245',2041,2070]]) {
+   const catalogue = await call({action:'catalogue',...selection,scenario,startYear,endYear});
+   assert.equal(catalogue.status, 200);
+   const {files, retrievalService} = await catalogue.json();
+   assert.equal(files.length, 30);
+   assert.match(retrievalService, /verified v2\.0 regional subset/);
+   for (const file of [files[0],files.at(-1)]) {
+    const response = await call({action:'year',...selection,scenario,...file});
+    const result = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(result));
+    assert.equal(result.extractedGridCells, 2);
+    assert.equal(result.nearestCellFallback, false);
+    assert.ok(result.records.length >= 365 && result.records.length <= 366);
+    assert.equal(result.records[0].date, `${file.year}-01-01`);
+    assert.equal(result.records.at(-1).date, `${file.year}-12-31`);
+   }
+   const response = await call({
+    action:'year',...selection,scenario,...files[0],spatialDate:`${startYear}-01-15`,
+   });
+   const result = await response.json();
+   assert.equal(response.status, 200, JSON.stringify(result));
+   assert.equal(result.records.length, 1);
+   assert.equal(result.spatialCells.length, 2);
+   assert.match(result.providerSubsetUrl, /nex-gddp-cmip6\.s3\.us-west-2\.amazonaws\.com/);
+  }
+  assert.equal(upstreamRequests, 0);
+ } finally { globalThis.fetch = original; }
+});
+
+test('the archive respects district geometry during an upstream failure', async () => {
+ const original = globalThis.fetch;
+ let upstreamRequests = 0;
+ try {
+  globalThis.fetch = async () => { upstreamRequests++; return new Response('file unavailable', {status:404}); };
+  const response = await call({
+   ...body, fileName:'pr_day_ACCESS-CM2_ssp245_r1i1p1f1_gn_2041_v2.0.nc',
+  });
+  const result = await response.json();
+  assert.equal(upstreamRequests, 1);
+  assert.equal(response.status, 502);
+  assert.match(result.error, /HTTP 404 for ACCESS-CM2 ssp245 r1i1p1f1, 2041/);
+ } finally { globalThis.fetch = original; }
+});

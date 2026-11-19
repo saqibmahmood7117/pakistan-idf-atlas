@@ -1,6 +1,8 @@
 import {
+  CMIP6_ARCHIVE_SERVICE,
   CMIP6_CATALOG_BASE,
   CMIP6_NCSS_BASE,
+  CMIP6_NCSS_SERVICE,
   cmip6GeometryBounds,
   cmip6ModelFolder,
   isCmip6Model,
@@ -10,6 +12,7 @@ import {
   parseCmip6YearFiles,
   type Cmip6Catalogue,
 } from "../../../lib/cmip6-online";
+import { peshawarCmip6Archive } from "../../../lib/cmip6-archive-cache";
 import { parseCmip6NcssNetcdf } from "../../../lib/cmip6-netcdf";
 import type { OnlineGeometry } from "../../../lib/online-precipitation";
 
@@ -20,6 +23,8 @@ type CatalogueRequest = {
   member?: unknown;
   startYear?: unknown;
   endYear?: unknown;
+  mode?: unknown;
+  geometry?: unknown;
 };
 
 type YearRequest = {
@@ -46,42 +51,40 @@ function isGeometry(value: unknown): value is OnlineGeometry {
   );
 }
 
-async function nasaFetch(url: string, timeoutMs = 80_000) {
-  const retryable = new Set([429, 500, 502, 503, 504]);
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+const retryableNasaStatuses = new Set([429, 500, 502, 503, 504]);
+
+async function nasaFetch(url: string, description: string, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  let failure = "did not respond";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    let response: Response | undefined;
     try {
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(timeoutMs),
+      response = await fetch(url, {
+        signal: AbortSignal.timeout(Math.min(remaining, Math.floor(timeoutMs / 2))),
         headers: {
           accept:
             "application/x-netcdf,application/xml,text/csv,text/plain;q=0.9,*/*;q=0.1",
         },
       });
-      if (response.ok) return response;
-      lastError = new Error(`HTTP ${response.status}`);
-      if (!retryable.has(response.status) || attempt === 3)
-        throw new Error(
-          `NASA NCCS THREDDS returned HTTP ${response.status}. Retry the selected model later; completed annual subsets remain cached in this browser tab.`,
-        );
     } catch (error) {
-      lastError = error;
-      if (
-        error instanceof Error &&
-        /NASA NCCS THREDDS returned HTTP/.test(error.message)
-      )
-        throw error;
-      if (attempt === 3)
-        throw new Error(
-          `NASA NCCS THREDDS did not respond within the supported request window (${error instanceof Error ? error.message : "network error"}). Retry to resume from the completed annual subsets.`,
-        );
+      failure = error instanceof Error && error.name === "TimeoutError"
+        ? "exceeded the response time limit"
+        : "could not be reached";
     }
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.min(8_000, 750 * 2 ** attempt)),
-    );
+    if (response) {
+      if (response.ok) return response;
+      failure = `returned HTTP ${response.status}`;
+      await response.body?.cancel();
+      if (!retryableNasaStatuses.has(response.status)) break;
+    }
+    const delay = 750 * 2 ** attempt;
+    if (attempt === 2 || Date.now() + delay >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, delay));
   }
   throw new Error(
-    `NASA NCCS THREDDS did not return a usable response (${lastError instanceof Error ? lastError.message : "network error"}).`,
+    `NASA NCCS THREDDS ${failure} for ${description}. Retry the same selection to reuse completed annual subsets in this tab.`,
   );
 }
 
@@ -111,8 +114,23 @@ async function catalogue(body: CatalogueRequest) {
         : "Choose a valid future period of at most 30 years between 2015 and 2100.",
     );
   const modelFolder = cmip6ModelFolder(model);
+  const geometry = isGeometry(body.geometry) ? body.geometry : undefined;
+  const archive = await peshawarCmip6Archive({ ...body, geometry });
+  if (archive) {
+    const files = Object.entries(archive.files)
+      .filter(([, file]) => file.scenario === scenario && file.year >= startYear && file.year <= endYear)
+      .map(([fileName, file]) => ({ year: file.year, fileName }))
+      .sort((a, b) => a.year - b.year);
+    if (files.length === endYear - startYear + 1) {
+      const response: Cmip6Catalogue = {
+        model, modelFolder, scenario, availableMembers: [archive.member],
+        selectedMember: archive.member, files, retrievalService: CMIP6_ARCHIVE_SERVICE,
+      };
+      return Response.json(response);
+    }
+  }
   const scenarioCatalogueUrl = `${CMIP6_CATALOG_BASE}/${encodeURIComponent(modelFolder)}/${scenario}/catalog.xml`;
-  const scenarioXml = await (await nasaFetch(scenarioCatalogueUrl, 35_000)).text();
+  const scenarioXml = await (await nasaFetch(scenarioCatalogueUrl, `${model} ${scenario} catalogue`, 18_000)).text();
   const availableMembers = parseCmip6Members(scenarioXml);
   if (!availableMembers.length)
     throw new Error(
@@ -134,7 +152,7 @@ async function catalogue(body: CatalogueRequest) {
   const selectedMember = requestedMember || availableMembers[0];
   const precipitationCatalogueUrl = `${CMIP6_CATALOG_BASE}/${encodeURIComponent(modelFolder)}/${scenario}/${selectedMember}/pr/catalog.xml`;
   const precipitationXml = await (
-    await nasaFetch(precipitationCatalogueUrl, 35_000)
+    await nasaFetch(precipitationCatalogueUrl, `${model} ${scenario} ${selectedMember} precipitation catalogue`, 18_000)
   ).text();
   const files = parseCmip6YearFiles(precipitationXml).filter(
     (file) => file.year >= startYear && file.year <= endYear,
@@ -222,27 +240,32 @@ async function annualSubset(body: YearRequest) {
     url.searchParams.set("horizStride", "1");
   }
 
-  const response = await nasaFetch(url.toString(), 110_000);
-  const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > 16_000_000)
-    throw new Error(
-      "The annual district subset exceeds the interactive response limit. Choose point extraction for this exceptionally large district.",
-    );
-  const parsed =
-    body.mode === "point"
+  const geometry = isGeometry(body.geometry) ? body.geometry : undefined;
+  const archive = await peshawarCmip6Archive({ ...body, member, geometry });
+  const archivedYear = archive?.files[fileName];
+  const cached = archivedYear?.year === year && archivedYear.scenario === scenario ? archivedYear : null;
+  let parsed: ReturnType<typeof parseCmip6NcssCsv> | ReturnType<typeof parseCmip6NcssNetcdf>;
+  if (cached) {
+    const bytes = Uint8Array.from(atob(cached.netcdf), character => character.charCodeAt(0));
+    parsed = parseCmip6NcssNetcdf(bytes, "district", geometry, spatialDate);
+  } else {
+    const response = await nasaFetch(url.toString(), `${model} ${scenario} ${member}, ${year}`, 110_000);
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > 16_000_000) {
+      await response.body?.cancel();
+      throw new Error("The annual district subset exceeds the interactive response limit.");
+    }
+    parsed = body.mode === "point"
       ? parseCmip6NcssCsv(await response.text(), "point")
-      : parseCmip6NcssNetcdf(
-          await response.arrayBuffer(),
-          "district",
-          body.geometry as OnlineGeometry,
-          spatialDate,
-        );
+      : parseCmip6NcssNetcdf(await response.arrayBuffer(), "district", geometry, spatialDate);
+  }
   return Response.json(
     {
       status: "complete",
       year,
       records: spatialDate ? parsed.records.filter(row=>row.date===spatialDate) : parsed.records,
-      providerSubsetUrl: spatialDate ? url.toString() : undefined,
+      providerSubsetUrl: spatialDate ? (cached?.sourceUrl ?? url.toString()) : undefined,
+      retrievalService: cached ? CMIP6_ARCHIVE_SERVICE : CMIP6_NCSS_SERVICE,
       spatialCells: "spatialCells" in parsed ? parsed.spatialCells : undefined,
       extractedGridCells: parsed.extractedGridCells,
       returnedLatitude: parsed.returnedLatitude,

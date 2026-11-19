@@ -11,8 +11,9 @@ models, and integrate model-specific bias-corrected CMIP6 projection results.
   completeness checks.
 - Retrieves live ERA5 precipitation through Open-Meteo and CHIRPS precipitation
   through ClimateSERV, with documented provider metadata and browser fallbacks.
-- Retrieves model-specific NASA NEX-GDDP-CMIP6 daily precipitation where the
-  NASA subset service is reachable.
+- Retrieves model-specific NASA NEX-GDDP-CMIP6 daily precipitation through the
+  NASA subset service. The default Peshawar district selection also has a
+  checksum-verified regional cache of the original NASA v2.0 grid values.
 - Applies monthly multiplicative quantile delta mapping (QDM) against a gauge
   record or clearly labelled ERA5 reference before fitting future extremes.
 - Keeps models separate and summarizes corrected return levels as the
@@ -129,6 +130,14 @@ mode or model member invalidates the corresponding calibration. Point and distri
 ensembles are kept separate. A nearest-cell fallback cannot be passed off as a
 historical district-average series. ERA5 correction remains reanalysis-corrected,
 not gauge-validated.
+
+For the bundled Peshawar boundary, the Atlas can use verified subsets of
+ACCESS-CM2 r1i1p1f1 from NASA's [public archive](https://registry.opendata.aws/nex-gddp-cmip6/).
+Coverage includes historical 1985–2014 and SSP2-4.5 2041–2070. The application
+matches the polygon and annual file identity before using the cache. Other
+selections use the live NASA subset service. The retrieval record and exports
+identify the service that supplied the data. The cache can be rebuilt with
+`scripts/build-peshawar-cmip6-cache.py`.
 
 When only 24-hour results are available, the chart plots **intensity against
 return period** and the calculator provides a fixed-duration result lookup.
