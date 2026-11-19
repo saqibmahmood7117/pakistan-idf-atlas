@@ -408,7 +408,6 @@ export function summarizeCmip6Grid(grid: Cmip6GridData, location: Cmip6GridLocat
   const spatialCells: {latitude:number; longitude:number; precipitationMm:number; latitudeSize:number; longitudeSize:number; weight:number}[] = [];
   const records: DailyRecord[] = [];
   for (const [timeIndex, date] of dates.entries()) {
-    if (spatialDate && date !== spatialDate) continue;
     let weightedSum = 0;
     let validWeight = 0;
     for (const cell of acceptedCells) {
@@ -418,7 +417,7 @@ export function summarizeCmip6Grid(grid: Cmip6GridData, location: Cmip6GridLocat
       )) continue;
       const precipitationMm = (raw * scaleFactor + addOffset) * unitMultiplier;
       if (!Number.isFinite(precipitationMm) || precipitationMm < 0 || precipitationMm > 5_000) continue;
-      if (spatialDate) {
+      if (spatialDate && date === spatialDate) {
         const {latitude, longitude, weight} = cell;
         spatialCells.push({latitude, longitude, precipitationMm, weight, latitudeSize, longitudeSize});
       }
@@ -430,9 +429,7 @@ export function summarizeCmip6Grid(grid: Cmip6GridData, location: Cmip6GridLocat
     }
   }
   if (!records.length)
-    throw new Error(spatialDate
-      ? `NASA returned no valid grid precipitation on ${spatialDate} in the model calendar.`
-      : "NASA returned no usable non-negative daily precipitation values.");
+    throw new Error("NASA returned no usable non-negative daily precipitation values.");
 
   const firstCell = acceptedCells[0];
   return {

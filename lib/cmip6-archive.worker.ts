@@ -164,6 +164,7 @@ scope.onmessage = async ({data: job}) => {
     }
     scope.postMessage({type: "complete", result: {
       ...result,
+      records: job.spatialDate ? result.records.filter(row => row.date === job.spatialDate) : result.records,
       year: job.year,
       retrievalService: CMIP6_PUBLIC_ARCHIVE_SERVICE,
       providerSubsetUrl: job.spatialDate ? job.sourceFileUrl : undefined,
