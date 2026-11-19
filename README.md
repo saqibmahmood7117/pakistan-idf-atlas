@@ -12,8 +12,8 @@ models, and integrate model-specific bias-corrected CMIP6 projection results.
 - Retrieves live ERA5 precipitation through Open-Meteo and CHIRPS precipitation
   through ClimateSERV, with documented provider metadata and browser fallbacks.
 - Retrieves model-specific NASA NEX-GDDP-CMIP6 daily precipitation through the
-  NASA subset service. The default Peshawar district selection also has a
-  checksum-verified regional cache of the original NASA v2.0 grid values.
+  NASA subset service. During an outage, the browser can open the matching
+  original annual NetCDF files from NASA Open Data for any supported GCM.
 - Applies monthly multiplicative quantile delta mapping (QDM) against a gauge
   record or clearly labelled ERA5 reference before fitting future extremes.
 - Keeps models separate and summarizes corrected return levels as the
@@ -131,13 +131,17 @@ ensembles are kept separate. A nearest-cell fallback cannot be passed off as a
 historical district-average series. ERA5 correction remains reanalysis-corrected,
 not gauge-validated.
 
-For the bundled Peshawar boundary, the Atlas can use verified subsets of
-ACCESS-CM2 r1i1p1f1 from NASA's [public archive](https://registry.opendata.aws/nex-gddp-cmip6/).
-Coverage includes historical 1985–2014 and SSP2-4.5 2041–2070. The application
-matches the polygon and annual file identity before using the cache. Other
-selections use the live NASA subset service. The retrieval record and exports
-identify the service that supplied the data. The cache can be rebuilt with
-`scripts/build-peshawar-cmip6-cache.py`.
+The Atlas uses native cell centres inside the polygon when available. For a
+polygon containing no cell centre, it weights intersecting cells by the area
+of their footprints inside that polygon. Both periods use the same rule.
+
+The [NASA public archive](https://registry.opendata.aws/nex-gddp-cmip6/) recovery
+route follows the selected model, scenario, member and annual file. A browser
+worker opens one uncached annual NetCDF at a time and saves a compact regional
+subset for reuse across selected districts and points. First-time transfers can
+be large. The retrieval status reports download progress and offers cancellation.
+Each selection depends on NASA publishing its exact files. The retrieval record
+and workbook include the service and spatial method.
 
 When only 24-hour results are available, the chart plots **intensity against
 return period** and the calculator provides a fixed-duration result lookup.

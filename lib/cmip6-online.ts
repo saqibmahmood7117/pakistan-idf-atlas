@@ -8,6 +8,16 @@ export const CMIP6_NCSS_BASE =
   "https://ds.nccs.nasa.gov/thredds/ncss/grid/AMES/NEX/GDDP-CMIP6";
 export const CMIP6_NCSS_SERVICE = "NCCS THREDDS NetCDF Subset Service";
 export const CMIP6_ARCHIVE_SERVICE = "NASA Open Data archive · verified v2.0 regional subset";
+export const CMIP6_PUBLIC_ARCHIVE = "https://nex-gddp-cmip6.s3.us-west-2.amazonaws.com";
+export const CMIP6_PUBLIC_ARCHIVE_SERVICE = "NASA Open Data archive · original NetCDF file";
+
+export type Cmip6GridSelection = "point" | "centres" | "overlap" | "nearest";
+
+export function cmip6DistrictMethod(selection: Cmip6GridSelection | undefined) {
+  if (selection === "overlap") return "Area-weighted mean over the native 0.25° grid cells intersecting the district. Weights use polygon–cell overlap adjusted for latitude.";
+  if (selection === "nearest") return "The nearest NASA grid cell to the district centre was used as a representative point.";
+  return "Daily mean of NASA 0.25° grid-cell centres inside the district polygon, weighted by cell-area latitude.";
+}
 
 export type Cmip6Model = (typeof CMIP6_MODELS)[number];
 
@@ -39,6 +49,7 @@ export type Cmip6ExtractionMetadata = {
   calendarConversion: string;
   extractionMode: "point" | "district";
   spatialMethod: string;
+  gridSelection?: Cmip6GridSelection;
   requestedStart: string;
   requestedEnd: string;
   returnedStart: string;

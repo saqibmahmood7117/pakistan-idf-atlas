@@ -3,6 +3,8 @@ import {
   CMIP6_CATALOG_BASE,
   CMIP6_NCSS_BASE,
   CMIP6_NCSS_SERVICE,
+  CMIP6_PUBLIC_ARCHIVE,
+  CMIP6_PUBLIC_ARCHIVE_SERVICE,
   cmip6GeometryBounds,
   cmip6ModelFolder,
   isCmip6Model,
@@ -11,6 +13,7 @@ import {
   parseCmip6NcssCsv,
   parseCmip6YearFiles,
   type Cmip6Catalogue,
+  type Cmip6Model,
 } from "../../../lib/cmip6-online";
 import { peshawarCmip6Archive } from "../../../lib/cmip6-archive-cache";
 import { parseCmip6NcssNetcdf } from "../../../lib/cmip6-netcdf";
@@ -25,6 +28,7 @@ type CatalogueRequest = {
   endYear?: unknown;
   mode?: unknown;
   geometry?: unknown;
+  allowArchive?: unknown;
 };
 
 type YearRequest = {
@@ -39,6 +43,8 @@ type YearRequest = {
   latitude?: unknown;
   longitude?: unknown;
   geometry?: unknown;
+  allowArchive?: unknown;
+  preferArchive?: unknown;
 };
 
 function isGeometry(value: unknown): value is OnlineGeometry {
@@ -96,6 +102,64 @@ function validateModelScenario(body: CatalogueRequest | YearRequest) {
   return { model: body.model, scenario: body.scenario as "historical" | import("../../../lib/idf-data").Cmip6Scenario };
 }
 
+async function listNasaArchive(prefix: string, delimiter?: string) {
+  const url = new URL(CMIP6_PUBLIC_ARCHIVE);
+  url.searchParams.set("list-type", "2");
+  url.searchParams.set("encoding-type", "url");
+  url.searchParams.set("prefix", prefix);
+  if (delimiter) url.searchParams.set("delimiter", delimiter);
+  const response = await fetch(url, {signal: AbortSignal.timeout(12_000)});
+  if (!response.ok) throw new Error(`NASA Open Data catalogue returned HTTP ${response.status} for ${prefix}.`);
+  const xml = await response.text();
+  if (/<IsTruncated>true<\/IsTruncated>/.test(xml)) {
+    throw new Error(`NASA Open Data returned an incomplete catalogue for ${prefix}.`);
+  }
+  return xml;
+}
+
+async function archiveCatalogue(
+  model: Cmip6Model,
+  scenario: Cmip6Catalogue["scenario"],
+  modelFolder: string,
+  requestedMember: string,
+  startYear: number,
+  endYear: number,
+) {
+  const prefix = `NEX-GDDP-CMIP6/${modelFolder}/${scenario}/`;
+  const membersXml = await listNasaArchive(prefix, "/");
+  const availableMembers = [...membersXml.matchAll(/<CommonPrefixes>\s*<Prefix>([^<]+)<\/Prefix>/g)]
+    .map(match => decodeURIComponent(match[1]).slice(prefix.length).replace(/\/$/, ""))
+    .filter(member => /^r\d+i\d+p\d+f\d+$/i.test(member))
+    .sort();
+  const selectedMember = requestedMember || availableMembers[0];
+  if (!selectedMember || !availableMembers.includes(selectedMember)) {
+    throw new Error(`NASA Open Data has no ${requestedMember || "realization"} for ${model} ${scenario}.`);
+  }
+  const filesXml = await listNasaArchive(`${prefix}${selectedMember}/pr/`);
+  const byYear = new Map<number, {fileName: string; revision: number}>();
+  for (const match of filesXml.matchAll(/<Key>([^<]+)<\/Key>/g)) {
+    const fileName = decodeURIComponent(match[1]).split("/").at(-1)!;
+    const parts = /^pr_day_[A-Za-z0-9_.()-]+_(\d{4})_v2\.(\d+)\.nc$/.exec(fileName);
+    if (!parts) continue;
+    const year = Number(parts[1]);
+    const revision = Number(parts[2]);
+    if (year >= startYear && year <= endYear && revision > (byYear.get(year)?.revision ?? -1)) {
+      byYear.set(year, {fileName, revision});
+    }
+  }
+  const files = Array.from(byYear, ([year, {fileName}]) => ({year, fileName})).sort((a, b) => a.year - b.year);
+  const missing = Array.from({length: endYear - startYear + 1}, (_, index) => startYear + index)
+    .filter(year => !byYear.has(year));
+  if (missing.length) {
+    throw new Error(`NASA Open Data has no matching v2 precipitation files for ${model} ${scenario} ${selectedMember} in ${missing.join(", ")}.`);
+  }
+  const catalogue: Cmip6Catalogue = {
+    model, modelFolder, scenario, availableMembers, selectedMember, files,
+    retrievalService: CMIP6_PUBLIC_ARCHIVE_SERVICE,
+  };
+  return Response.json(catalogue);
+}
+
 async function catalogue(body: CatalogueRequest) {
   const { model, scenario } = validateModelScenario(body);
   const startYear = Number(body.startYear);
@@ -114,6 +178,10 @@ async function catalogue(body: CatalogueRequest) {
         : "Choose a valid future period of at most 30 years between 2015 and 2100.",
     );
   const modelFolder = cmip6ModelFolder(model);
+  const requestedMember = typeof body.member === "string" && body.member !== "auto" ? body.member : "";
+  if (requestedMember && !/^r\d+i\d+p\d+f\d+$/i.test(requestedMember)) {
+    throw new Error("The requested CMIP6 realization identifier is invalid.");
+  }
   const geometry = isGeometry(body.geometry) ? body.geometry : undefined;
   const archive = await peshawarCmip6Archive({ ...body, geometry });
   if (archive) {
@@ -129,36 +197,42 @@ async function catalogue(body: CatalogueRequest) {
       return Response.json(response);
     }
   }
+  const fromArchive = () => archiveCatalogue(model, scenario, modelFolder, requestedMember, startYear, endYear);
   const scenarioCatalogueUrl = `${CMIP6_CATALOG_BASE}/${encodeURIComponent(modelFolder)}/${scenario}/catalog.xml`;
-  const scenarioXml = await (await nasaFetch(scenarioCatalogueUrl, `${model} ${scenario} catalogue`, 18_000)).text();
+  let scenarioXml: string;
+  try {
+    scenarioXml = await (await nasaFetch(scenarioCatalogueUrl, `${model} ${scenario} catalogue`, 18_000)).text();
+  } catch (error) {
+    if (body.allowArchive === true) return fromArchive();
+    throw error;
+  }
   const availableMembers = parseCmip6Members(scenarioXml);
+  if (!availableMembers.length && body.allowArchive === true) return fromArchive();
   if (!availableMembers.length)
     throw new Error(
       `NASA lists no ${scenario} realization for ${model}. Choose another model or SSP.`,
     );
-  const requestedMember =
-    typeof body.member === "string" && body.member !== "auto"
-      ? body.member
-      : "";
-  if (
-    requestedMember &&
-    !/^r\d+i\d+p\d+f\d+$/i.test(requestedMember)
-  )
-    throw new Error("The requested CMIP6 realization identifier is invalid.");
   if (requestedMember && !availableMembers.includes(requestedMember))
     throw new Error(
       `${requestedMember} is not available for ${model} ${scenario}. Available member${availableMembers.length === 1 ? "" : "s"}: ${availableMembers.join(", ")}.`,
     );
   const selectedMember = requestedMember || availableMembers[0];
   const precipitationCatalogueUrl = `${CMIP6_CATALOG_BASE}/${encodeURIComponent(modelFolder)}/${scenario}/${selectedMember}/pr/catalog.xml`;
-  const precipitationXml = await (
-    await nasaFetch(precipitationCatalogueUrl, `${model} ${scenario} ${selectedMember} precipitation catalogue`, 18_000)
-  ).text();
+  let precipitationXml: string;
+  try {
+    precipitationXml = await (
+      await nasaFetch(precipitationCatalogueUrl, `${model} ${scenario} ${selectedMember} precipitation catalogue`, 18_000)
+    ).text();
+  } catch (error) {
+    if (body.allowArchive === true) return fromArchive();
+    throw error;
+  }
   const files = parseCmip6YearFiles(precipitationXml).filter(
     (file) => file.year >= startYear && file.year <= endYear,
   );
   const expectedYears = endYear - startYear + 1;
   if (files.length !== expectedYears) {
+    if (body.allowArchive === true) return fromArchive();
     const returned = new Set(files.map((file) => file.year));
     const missing = Array.from(
       { length: expectedYears },
@@ -197,7 +271,7 @@ async function annualSubset(body: YearRequest) {
     !/^[A-Za-z0-9_.()-]+\.nc$/.test(fileName) ||
     !fileName.startsWith("pr_day_") ||
     !new RegExp(`_${year}(?:_v[A-Za-z0-9.-]+)?\\.nc$`).test(fileName) ||
-    !fileName.includes(`_${scenario}_`)
+    !fileName.includes(`_${scenario}_${member}_`)
   )
     throw new Error("The NASA annual precipitation filename is invalid.");
   if (body.mode !== "point" && body.mode !== "district")
@@ -244,20 +318,34 @@ async function annualSubset(body: YearRequest) {
   const archive = await peshawarCmip6Archive({ ...body, member, geometry });
   const archivedYear = archive?.files[fileName];
   const cached = archivedYear?.year === year && archivedYear.scenario === scenario ? archivedYear : null;
+  const usePublicArchive = () => Response.json({
+    status: "archive",
+    year,
+    sourceFileUrl: `${CMIP6_PUBLIC_ARCHIVE}/NEX-GDDP-CMIP6/${datasetPath}`,
+    retrievalService: CMIP6_PUBLIC_ARCHIVE_SERVICE,
+  });
   let parsed: ReturnType<typeof parseCmip6NcssCsv> | ReturnType<typeof parseCmip6NcssNetcdf>;
   if (cached) {
     const bytes = Uint8Array.from(atob(cached.netcdf), character => character.charCodeAt(0));
     parsed = parseCmip6NcssNetcdf(bytes, "district", geometry, spatialDate);
   } else {
-    const response = await nasaFetch(url.toString(), `${model} ${scenario} ${member}, ${year}`, 110_000);
-    const contentLength = Number(response.headers.get("content-length"));
-    if (Number.isFinite(contentLength) && contentLength > 16_000_000) {
-      await response.body?.cancel();
-      throw new Error("The annual district subset exceeds the interactive response limit.");
+    if (body.allowArchive === true && body.preferArchive === true) return usePublicArchive();
+    try {
+      const response = await nasaFetch(url.toString(), `${model} ${scenario} ${member}, ${year}`, 110_000);
+      const contentLength = Number(response.headers.get("content-length"));
+      if (Number.isFinite(contentLength) && contentLength > 16_000_000) {
+        await response.body?.cancel();
+        throw new Error("The annual district subset exceeds the interactive response limit.");
+      }
+      parsed = body.mode === "point"
+        ? parseCmip6NcssCsv(await response.text(), "point")
+        : parseCmip6NcssNetcdf(await response.arrayBuffer(), "district", geometry, spatialDate);
+    } catch (error) {
+      // Use the identical annual file. A spatial-date absence is reported as
+      // a model-calendar gap after the archive is decoded as well.
+      if (body.allowArchive === true) return usePublicArchive();
+      throw error;
     }
-    parsed = body.mode === "point"
-      ? parseCmip6NcssCsv(await response.text(), "point")
-      : parseCmip6NcssNetcdf(await response.arrayBuffer(), "district", geometry, spatialDate);
   }
   return Response.json(
     {
@@ -271,6 +359,7 @@ async function annualSubset(body: YearRequest) {
       returnedLatitude: parsed.returnedLatitude,
       returnedLongitude: parsed.returnedLongitude,
       nearestCellFallback: parsed.nearestCellFallback,
+      gridSelection: "gridSelection" in parsed ? parsed.gridSelection : "point",
       sourceTimeUnits: parsed.sourceTimeUnits,
       sourceCalendar: parsed.sourceCalendar,
       calendarConversion: parsed.calendarConversion,
@@ -291,7 +380,7 @@ export async function POST(request: Request) {
         ? error.message
         : "CMIP6 precipitation retrieval failed.";
     const providerFailure =
-      /NASA NCCS THREDDS|NASA returned|NetCDF|network error|request window/i.test(
+      /NASA NCCS THREDDS|NASA Open Data.*HTTP|NASA returned|NetCDF|network error|request window/i.test(
         message,
       );
     return Response.json(

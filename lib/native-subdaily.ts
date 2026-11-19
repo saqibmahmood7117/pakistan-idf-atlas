@@ -1,6 +1,7 @@
 import { NetCDFReader } from "netcdfjs";
 import { frequencyQuantile, PERIODS, type ResultRow } from "./observed-idf.ts";
 import type { OnlineGeometry } from "./online-precipitation.ts";
+import { gridCellOverlap } from "./grid-cell-overlap.ts";
 
 export type NativeRainRecord={timestamp:string;precipitationMm:number};
 export type NativeDurationAudit={durationMinutes:number;baselineYears:number[];futureYears:number[];referenceYears:number;minimumCoverage:number};
@@ -8,24 +9,8 @@ export type NativeCorrectionResult={rows:ResultRow[];audit:NativeDurationAudit[]
 const STEP=180*60000;
 const flat=(input:unknown):number[]=>typeof input==='number'?[input]:Array.isArray(input)||ArrayBuffer.isView(input)?Array.from(input as ArrayLike<unknown>).flatMap(flat):[];
 
-function clipArea(ring:number[][],west:number,east:number,south:number,north:number){
- let points=ring;
- const boundaries:[number,number,boolean][]=[[0,west,true],[0,east,false],[1,south,true],[1,north,false]];
- for(const [axis,edge,greater] of boundaries){
-  const out:number[][]=[];
-  for(let i=0;i<points.length;i++){
-   const a=points[i],b=points[(i+1)%points.length];
-   const ina=greater?a[axis]>=edge:a[axis]<=edge,inb=greater?b[axis]>=edge:b[axis]<=edge;
-   if(ina)out.push(a);
-   if(ina!==inb){const t=(edge-a[axis])/(b[axis]-a[axis]);out.push([a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1])]);}
-  }
-  points=out;if(!points.length)return 0;
- }
- return Math.abs(points.reduce((sum,a,i)=>{const b=points[(i+1)%points.length];return sum+a[0]*b[1]-b[0]*a[1];},0))/2;
-}
 export function nativeCellOverlap(geometry:OnlineGeometry,lat:number,lon:number){
- const polygons=geometry.type==='Polygon'?[geometry.coordinates]:geometry.coordinates;
- return polygons.reduce((sum,polygon)=>sum+Math.max(0,polygon.reduce((area,ring,index)=>area+(index===0?1:-1)*clipArea(ring,lon-.9375,lon+.9375,lat-.625,lat+.625),0)),0)*Math.cos(lat*Math.PI/180);
+ return gridCellOverlap(geometry, lat, lon, 1.25, 1.875);
 }
 
 /** ACCESS-CM2 native 3hr mean flux. NCSS times are verified interval midpoints. */

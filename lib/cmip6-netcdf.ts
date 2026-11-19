@@ -3,7 +3,8 @@ import {
   pointInOnlineGeometry,
   type OnlineGeometry,
 } from "./online-precipitation.ts";
-import { cmip6GeometryBounds } from "./cmip6-online.ts";
+import { cmip6GeometryBounds, type Cmip6GridSelection } from "./cmip6-online.ts";
+import { gridCellOverlap } from "./grid-cell-overlap.ts";
 import type { DailyRecord } from "./observed-idf.ts";
 
 type VariableAttribute = {
@@ -283,24 +284,13 @@ export function parseCmip6NcssNetcdf(
   const calendar = String(
     variableAttribute(timeVariable, "calendar") ?? "standard",
   ).toLowerCase();
-  const calendarTime = cmip6NetcdfTimeDates(timeValues, timeUnits, calendar);
-  const dates = calendarTime.dates;
-  const sourceUnits = String(
-    variableAttribute(precipitationVariable, "units") ?? "",
-  );
-  const unitMultiplier = precipitationMultiplier(sourceUnits);
-  const scaleFactor = Number(
-    variableAttribute(precipitationVariable, "scale_factor") ?? 1,
-  );
-  const addOffset = Number(
-    variableAttribute(precipitationVariable, "add_offset") ?? 0,
-  );
+  const sourceUnits = String(variableAttribute(precipitationVariable, "units") ?? "");
+  const scaleFactor = Number(variableAttribute(precipitationVariable, "scale_factor") ?? 1);
+  const addOffset = Number(variableAttribute(precipitationVariable, "add_offset") ?? 0);
   const missingValues = [
     variableAttribute(precipitationVariable, "_FillValue"),
     variableAttribute(precipitationVariable, "missing_value"),
-  ]
-    .map(Number)
-    .filter(Number.isFinite);
+  ].map(Number).filter(Number.isFinite);
 
   const dimensionNames = precipitationVariable.dimensions.map(
     (dimensionId) => reader.dimensions[dimensionId]?.name.toLowerCase() ?? "",
@@ -320,7 +310,7 @@ export function parseCmip6NcssNetcdf(
       `NASA returned unsupported precipitation dimensions (${dimensionNames.join(", ")}).`,
     );
   if (
-    dimensionSizes[timePosition] !== dates.length ||
+    dimensionSizes[timePosition] !== timeValues.length ||
     dimensionSizes[latitudePosition] !== latitudes.length ||
     dimensionSizes[longitudePosition] !== longitudes.length
   )
@@ -328,99 +318,131 @@ export function parseCmip6NcssNetcdf(
       "NASA returned inconsistent NetCDF coordinate and precipitation dimensions.",
     );
 
-  const allCells = latitudes.flatMap((latitude, latitudeIndex) =>
-    longitudes.map((longitude, longitudeIndex) => ({
-      latitude,
-      latitudeIndex,
-      longitude,
-      longitudeIndex,
+  return summarizeCmip6Grid({
+    timeValues, timeUnits, calendar, latitudes, longitudes, sourceUnits,
+    scaleFactor, addOffset, missingValues,
+    readRate: (timeIndex, latitudeIndex, longitudeIndex) => {
+      const indices = dimensionSizes.map(() => 0);
+      indices[timePosition] = timeIndex;
+      indices[latitudePosition] = latitudeIndex;
+      indices[longitudePosition] = longitudeIndex;
+      return precipitation[flatIndex(indices, dimensionSizes)];
+    },
+  }, {mode, geometry}, spatialDate);
+}
+
+type Cmip6GridData = {
+  timeValues: ArrayLike<number>;
+  timeUnits: string;
+  calendar: string;
+  latitudes: ArrayLike<number>;
+  longitudes: ArrayLike<number>;
+  sourceUnits: string;
+  scaleFactor: number;
+  addOffset: number;
+  missingValues: number[];
+  readRate: (timeIndex: number, latitudeIndex: number, longitudeIndex: number) => number;
+};
+
+export type Cmip6GridLocation = {
+  mode: "point" | "district";
+  geometry?: OnlineGeometry;
+  latitude?: number;
+  longitude?: number;
+};
+
+/** Shared spatial and calendar rules for live and archive NetCDF extraction. */
+export function summarizeCmip6Grid(grid: Cmip6GridData, location: Cmip6GridLocation, spatialDate?: string) {
+  const { latitudes, longitudes, timeUnits, calendar, sourceUnits, scaleFactor, addOffset, missingValues, readRate } = grid;
+  const calendarTime = cmip6NetcdfTimeDates(Array.from(grid.timeValues), timeUnits, calendar);
+  const dates = calendarTime.dates;
+  const unitMultiplier = precipitationMultiplier(sourceUnits);
+  const latitudeSize = latitudes.length > 1 ? Math.abs(latitudes[1] - latitudes[0]) : 0.25;
+  const longitudeSize = longitudes.length > 1 ? Math.abs(longitudes[1] - longitudes[0]) : 0.25;
+  const allCells = Array.from(latitudes).flatMap((latitude, latitudeIndex) =>
+    Array.from(longitudes, (longitude, longitudeIndex) => ({
+      latitude, longitude, latitudeIndex, longitudeIndex,
+      weight: Math.max(0.01, Math.cos(latitude * Math.PI / 180)),
     })),
   );
-  let acceptedCells = allCells;
-  let nearestCellFallback = false;
-  if (mode === "district" && geometry) {
-    acceptedCells = allCells.filter((cell) =>
-      pointInOnlineGeometry(cell.longitude, cell.latitude, geometry),
-    );
-    if (!acceptedCells.length) {
-      const bounds = cmip6GeometryBounds(geometry);
-      const centerLatitude = (bounds.north + bounds.south) / 2;
-      const centerLongitude = (bounds.east + bounds.west) / 2;
-      const nearest = [...allCells].sort(
-        (a, b) =>
-          (a.latitude - centerLatitude) ** 2 +
-          (a.longitude - centerLongitude) ** 2 -
-          ((b.latitude - centerLatitude) ** 2 +
-            (b.longitude - centerLongitude) ** 2),
-      )[0];
-      if (nearest) {
-        acceptedCells = [nearest];
-        nearestCellFallback = true;
+
+  const nearestTo = (latitude: number, longitude: number, cells = allCells) => {
+    let nearest: typeof allCells[number] | undefined;
+    let distance = Infinity;
+    for (const cell of cells) {
+      const squared = (cell.latitude - latitude) ** 2 + (cell.longitude - longitude) ** 2;
+      if (squared < distance) {
+        nearest = cell;
+        distance = squared;
       }
+    }
+    return nearest ? [nearest] : [];
+  };
+
+  let acceptedCells = allCells;
+  let gridSelection: Cmip6GridSelection = location.mode === "district" ? "centres" : "point";
+  if (location.mode === "point" && location.latitude != null && location.longitude != null) {
+    acceptedCells = nearestTo(location.latitude, location.longitude);
+  } else if (location.mode === "district" && location.geometry) {
+    const geometry = location.geometry;
+    const {west, east, south, north} = cmip6GeometryBounds(geometry);
+    const candidates = allCells.filter(cell =>
+      cell.latitude + latitudeSize / 2 >= south && cell.latitude - latitudeSize / 2 <= north &&
+      cell.longitude + longitudeSize / 2 >= west && cell.longitude - longitudeSize / 2 <= east,
+    );
+    acceptedCells = candidates.filter(cell => pointInOnlineGeometry(cell.longitude, cell.latitude, geometry));
+    if (!acceptedCells.length) {
+      acceptedCells = candidates.map(cell => ({
+        ...cell, weight: gridCellOverlap(geometry, cell.latitude, cell.longitude, latitudeSize, longitudeSize),
+      })).filter(cell => cell.weight > 0);
+      gridSelection = "overlap";
+    }
+    if (!acceptedCells.length) {
+      acceptedCells = nearestTo((north + south) / 2, (east + west) / 2);
+      gridSelection = "nearest";
     }
   }
   if (!acceptedCells.length)
-    throw new Error(
-      "No NASA grid cells could be assigned to the selected extraction geometry.",
-    );
+    throw new Error("No NASA grid cells could be assigned to the selected extraction geometry.");
 
-  const spatialCells: {latitude:number;longitude:number;precipitationMm:number;latitudeSize:number;longitudeSize:number;weight:number}[] = [];
+  const spatialCells: {latitude:number; longitude:number; precipitationMm:number; latitudeSize:number; longitudeSize:number; weight:number}[] = [];
   const records: DailyRecord[] = [];
-  for (let timeIndex = 0; timeIndex < dates.length; timeIndex += 1) {
+  for (const [timeIndex, date] of dates.entries()) {
+    if (spatialDate && date !== spatialDate) continue;
     let weightedSum = 0;
     let validWeight = 0;
     for (const cell of acceptedCells) {
-      const indices = dimensionSizes.map(() => 0);
-      indices[timePosition] = timeIndex;
-      indices[latitudePosition] = cell.latitudeIndex;
-      indices[longitudePosition] = cell.longitudeIndex;
-      const raw = precipitation[flatIndex(indices, dimensionSizes)];
-      if (
-        !Number.isFinite(raw) ||
-        missingValues.some(
-          (missing) =>
-            raw === missing ||
-            Math.abs(raw - missing) <=
-              Math.max(1, Math.abs(missing)) * 1e-7,
-        )
-      )
-        continue;
-      const precipitationMm =
-        (raw * scaleFactor + addOffset) * unitMultiplier;
-      if (
-        !Number.isFinite(precipitationMm) ||
-        precipitationMm < 0 ||
-        precipitationMm > 5_000
-      )
-        continue;
-      const weight = Math.max(
-        0.01,
-        Math.cos((cell.latitude * Math.PI) / 180),
-      );
-      if(spatialDate && dates[timeIndex]===spatialDate) spatialCells.push({latitude:cell.latitude,longitude:cell.longitude,precipitationMm,weight,latitudeSize:latitudes.length>1?Math.abs(latitudes[1]-latitudes[0]):.25,longitudeSize:longitudes.length>1?Math.abs(longitudes[1]-longitudes[0]):.25});
-      weightedSum += precipitationMm * weight;
-      validWeight += weight;
+      const raw = readRate(timeIndex, cell.latitudeIndex, cell.longitudeIndex);
+      if (!Number.isFinite(raw) || missingValues.some(missing =>
+        Math.abs(raw - missing) <= Math.max(1, Math.abs(missing)) * 1e-7,
+      )) continue;
+      const precipitationMm = (raw * scaleFactor + addOffset) * unitMultiplier;
+      if (!Number.isFinite(precipitationMm) || precipitationMm < 0 || precipitationMm > 5_000) continue;
+      if (spatialDate) {
+        const {latitude, longitude, weight} = cell;
+        spatialCells.push({latitude, longitude, precipitationMm, weight, latitudeSize, longitudeSize});
+      }
+      weightedSum += precipitationMm * cell.weight;
+      validWeight += cell.weight;
     }
-    if (validWeight > 0)
-      records.push({
-        date: dates[timeIndex],
-        precipitationMm: +(weightedSum / validWeight).toFixed(4),
-        qc: "provider",
-      });
+    if (validWeight > 0) {
+      records.push({ date, precipitationMm: +(weightedSum / validWeight).toFixed(4), qc: "provider" });
+    }
   }
   if (!records.length)
-    throw new Error(
-      "NASA THREDDS returned no usable non-negative daily precipitation values.",
-    );
+    throw new Error(spatialDate
+      ? `NASA returned no valid grid precipitation on ${spatialDate} in the model calendar.`
+      : "NASA returned no usable non-negative daily precipitation values.");
 
   const firstCell = acceptedCells[0];
   return {
     records,
     spatialCells,
     extractedGridCells: acceptedCells.length,
-    returnedLatitude: mode === "point" ? firstCell.latitude : undefined,
-    returnedLongitude: mode === "point" ? firstCell.longitude : undefined,
-    nearestCellFallback,
+    returnedLatitude: location.mode === "point" ? firstCell.latitude : undefined,
+    returnedLongitude: location.mode === "point" ? firstCell.longitude : undefined,
+    gridSelection,
+    nearestCellFallback: gridSelection === "nearest",
     sourceUnits,
     sourceTimeUnits: timeUnits,
     sourceCalendar: calendarTime.sourceCalendar,

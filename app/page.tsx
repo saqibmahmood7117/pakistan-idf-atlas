@@ -101,8 +101,10 @@ import {
 } from "../lib/district-boundaries";
 import {
   CMIP6_NCSS_SERVICE,
+  cmip6DistrictMethod,
   type Cmip6Catalogue,
   type Cmip6ExtractionMetadata,
+  type Cmip6GridSelection,
 } from "../lib/cmip6-online";
 import {
   monthlyMultiplicativeQdm,
@@ -157,6 +159,7 @@ type Cmip6AnnualResponse = {
   returnedLatitude?: number;
   returnedLongitude?: number;
   nearestCellFallback?: boolean;
+  gridSelection?: Cmip6GridSelection;
   sourceTimeUnits?: string;
   sourceCalendar?: string;
   calendarConversion?: string;
@@ -201,27 +204,58 @@ const cmipEnsembleSelectionKey = ({
   ].join("|");
 const cmip6AnnualResponseCache = new Map<string, Cmip6AnnualResponse>();
 const CMIP6_ANNUAL_CACHE_LIMIT = 80;
+const cmip6PreferArchiveUntil = new Map<string, number>();
 
-async function postCmip6<T>(payload: { action: "catalogue" | "year" } & Record<string, unknown>): Promise<T> {
+type Cmip6RequestProgress = { signal?: AbortSignal; onArchiveProgress?: (message: string) => void };
+
+async function postCmip6<T>(
+  payload: { action: "catalogue" | "year" } & Record<string, unknown>,
+  options: Cmip6RequestProgress = {},
+): Promise<T> {
+  options.signal?.throwIfAborted();
   const cacheKey = payload.action === "year" && !payload.spatialDate ? JSON.stringify(payload) : "";
   const cached = cacheKey ? cmip6AnnualResponseCache.get(cacheKey) : undefined;
   if (cached) return cached as T;
 
   let response: Response;
+  const sourceKey = `${payload.model}|${payload.scenario}|${payload.member}`;
+  const timeout = AbortSignal.timeout(payload.action === "year" ? 125_000 : 65_000);
   try {
     response = await fetch("/api/cmip6-precipitation", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(payload.action === "year" ? 125_000 : 45_000),
+      body: JSON.stringify({
+        ...payload, allowArchive: true,
+        preferArchive: payload.action === "year" && (cmip6PreferArchiveUntil.get(sourceKey) ?? 0) > Date.now(),
+      }),
+      signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
     });
   } catch {
+    options.signal?.throwIfAborted();
     const request = payload.action === "year" ? `the ${payload.year} subset` : "the model catalogue";
     throw new Error(`The Atlas did not receive ${request}. Retry the same selection to reuse completed annual subsets in this tab.`);
   }
-  const data = await response.json().catch(() => null);
+  let data = await response.json().catch(() => null);
   if (!response.ok || !data || typeof data.error === "string") {
     throw new Error(data?.error ?? `The CMIP6 retrieval route returned HTTP ${response.status}.`);
+  }
+  if (data.status === "archive") {
+    if (typeof data.sourceFileUrl !== "string" || data.year !== payload.year) {
+      throw new Error("The Atlas did not receive a matching NASA archive file.");
+    }
+    cmip6PreferArchiveUntil.set(sourceKey, Date.now() + 120_000);
+    const {processCmip6ArchiveInBrowser} = await import("../lib/cmip6-archive-browser");
+    data = await processCmip6ArchiveInBrowser({
+      sourceFileUrl: data.sourceFileUrl,
+      year: data.year,
+      location: {
+        mode: payload.mode as "point" | "district",
+        geometry: payload.geometry as OnlineGeometry | undefined,
+        latitude: payload.latitude as number | undefined,
+        longitude: payload.longitude as number | undefined,
+      },
+      spatialDate: payload.spatialDate as string | undefined,
+    }, options.onArchiveProgress, options.signal);
   }
   if (cacheKey) {
     if (data.year !== payload.year || !Array.isArray(data.records) || !data.records.length) {
@@ -305,7 +339,8 @@ type DirectOpenMeteoPayload = {
   };
   hourly?: { time?: string[]; precipitation?: Array<number | null> };
 };
-async function fetchOpenMeteoInBrowser(url: string, bypassCache = false) {
+async function fetchOpenMeteoInBrowser(url: string, bypassCache = false, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const retryable = new Set([429, 502, 503, 504]);
   let responseCache: Cache | null = null;
   try {
@@ -323,7 +358,7 @@ async function fetchOpenMeteoInBrowser(url: string, bypassCache = false) {
     responseCache = null;
   }
   for (let attempt = 0; attempt < 6; attempt += 1) {
-    const response = await fetch(url);
+    const response = await fetch(url, {signal});
     if (response.ok) {
       const cacheCopy = response.clone();
       const payload = (await response.json()) as
@@ -357,6 +392,7 @@ async function fetchOpenMeteoInBrowser(url: string, bypassCache = false) {
 async function extractEra5InBrowser(
   request: DirectEra5Request,
   onProgress: (value: number) => void,
+  signal?: AbortSignal,
 ): Promise<OnlineExtractionResponse> {
   if (request.source === "era5land")
     throw new Error(ERA5_LAND_PRECIPITATION_NOTICE);
@@ -419,6 +455,7 @@ async function extractEra5InBrowser(
       const payload = await fetchOpenMeteoInBrowser(
           url.toString(),
           request.bypassCache === true,
+          signal,
         ),
         locations = (
           Array.isArray(payload) ? payload : [payload]
@@ -3033,7 +3070,8 @@ export default function App() {
     covariateInput = useRef<HTMLInputElement>(null),
     cmipInput = useRef<HTMLInputElement>(null),
     cmipResultsInput = useRef<HTMLInputElement>(null),
-    boundaryInput = useRef<HTMLInputElement>(null);
+    boundaryInput = useRef<HTMLInputElement>(null),
+    cmipRetrieval = useRef<AbortController | null>(null);
   const filtered = useMemo(
     () =>
       raw.filter((r) => (!start || r.date >= start) && (!end || r.date <= end)),
@@ -3367,6 +3405,8 @@ export default function App() {
       (spatialMode !== "district" || (activeCmipBiasAudit?.mode === "district" && activeCmipBiasAudit.spatialKey === currentCmipSpatialKey)) &&
       (!cmipMetadata || !activeCmipBiasAudit || activeCmipBiasAudit.member === cmipMetadata.member) &&
       (spatialMode !== "district" || !cmipMetadata?.nearestCellFallback) &&
+      (!cmipMetadata?.gridSelection || !activeCmipBiasAudit?.historicalGridSelection ||
+        cmipMetadata.gridSelection === activeCmipBiasAudit.historicalGridSelection) &&
       cmipHistoricalQc.eligibleYears >= 20 &&
       cmipReferenceQc.eligibleYears >= 20 &&
       cmipCorrectedQc.eligibleYears >= 8,
@@ -3465,7 +3505,7 @@ export default function App() {
     const file=catalogue.files.find(file=>file.year===year);if(!file)throw Error("NASA has no matching spatial source file for this year.");
     const value = await postCmip6<Cmip6AnnualResponse>({action:"year",...selection,member:catalogue.selectedMember,year,fileName:file.fileName,spatialDate:timestamp});
     if(!Array.isArray(value.spatialCells)||!value.spatialCells.length)throw Error("NASA returned no native spatial values for this date. Calendar gaps were not filled.");
-    return {timestamp,cells:value.spatialCells,sourceUrl:value.providerSubsetUrl,source:`${cmipMetadata.model} · ${cmipMetadata.scenario} · ${cmipMetadata.member}`,retrievedAt:new Date().toISOString(),note:`Raw NASA source cells, selected using the same district-centre inclusion method as daily extraction. ${value.nearestCellFallback?"Nearest-cell fallback was required; this is not a district-resolved raster.":"Footprints are clipped to the district for display; no interpolation is applied."} District QDM is not cell-wise correction. Calendar: ${value.sourceCalendar}. Valid cells: ${value.spatialCells.length}/${value.extractedGridCells}.`};
+    return {timestamp,cells:value.spatialCells,sourceUrl:value.providerSubsetUrl,source:`${cmipMetadata.model} · ${cmipMetadata.scenario} · ${cmipMetadata.member}`,retrievedAt:new Date().toISOString(),note:`Raw NASA source cells. ${cmip6DistrictMethod(value.gridSelection)} Footprints are clipped to the district for display. District QDM applies to the district daily series. Calendar ${value.sourceCalendar}. Valid cells ${value.spatialCells.length}/${value.extractedGridCells}.`};
   }
   const activeStationarity =
       sourceTab === "online"
@@ -4494,6 +4534,7 @@ export default function App() {
     return uploadObservedWorkbook(file, "hourly");
   }
   async function retrieveCmipPrecipitation() {
+    if (cmipRetrieval.current) return;
     if (cmipSelectionMode !== "individual") {
       setCmipDataMessage(
         "Direct retrieval fits one GCM at a time. Choose Individual GCM model, retrieve and fit each model, then calculate the multi-model median from model-specific return levels.",
@@ -4513,12 +4554,11 @@ export default function App() {
       return;
     }
     const [startYear, endYear] = cmipPeriod.split("-").map(Number);
+    const controller = new AbortController();
+    cmipRetrieval.current = controller;
+    const options = {signal: controller.signal, onArchiveProgress: setCmipDataMessage};
     setCmipBusy(true);
     setCmipProgress(1);
-    setCmipRaw([]);
-    setCmipLoadedKey("");
-    setCmipMetadata(null);
-    setShowCmipPrecipitationPlot(false);
     setCmipDataMessage(
       `Checking the NASA catalogue for ${selectedCmipModel}, ${CMIP6_SCENARIOS[cmipScenario].label}…`,
     );
@@ -4537,7 +4577,7 @@ export default function App() {
         startYear,
         endYear,
         ...spatialRequest,
-      });
+      }, options);
       setCmipMember(catalogue.selectedMember);
       setCmipProgress(5);
       setCmipDataMessage(
@@ -4547,7 +4587,7 @@ export default function App() {
       let maximumGridCells = 0;
       let returnedLatitude: number | undefined;
       let returnedLongitude: number | undefined;
-      let usedNearestCellFallback = false;
+      let gridSelection: Cmip6GridSelection | undefined;
       const sourceCalendars = new Set<string>();
       const sourceTimeUnits = new Set<string>();
       const calendarConversions = new Set<string>();
@@ -4563,7 +4603,7 @@ export default function App() {
           year: file.year,
           fileName: file.fileName,
           ...spatialRequest,
-        })));
+        }, options)));
         for (const response of annual) {
           retrievalServices.add(response.retrievalService ?? CMIP6_NCSS_SERVICE);
           groups.push(response.records);
@@ -4573,9 +4613,10 @@ export default function App() {
           );
           returnedLatitude ??= response.returnedLatitude;
           returnedLongitude ??= response.returnedLongitude;
-          usedNearestCellFallback ||= Boolean(
-            response.nearestCellFallback,
-          );
+          if (gridSelection && response.gridSelection && gridSelection !== response.gridSelection) {
+            throw new Error("NASA annual files use different spatial selection rules for the active location.");
+          }
+          gridSelection ??= response.gridSelection ?? (response.nearestCellFallback ? "nearest" : undefined);
           if (response.sourceCalendar)
             sourceCalendars.add(response.sourceCalendar);
           if (response.sourceTimeUnits)
@@ -4594,6 +4635,7 @@ export default function App() {
           `Retrieved ${completed} of ${catalogue.files.length} annual NASA subsets for ${catalogue.model}, ${catalogue.selectedMember}…`,
         );
       }
+      controller.signal.throwIfAborted();
       const records = mergeDailyRecords(groups);
       if (!records.length)
         throw new Error(
@@ -4621,19 +4663,17 @@ export default function App() {
           [...calendarConversions].join(" ") ||
           "No calendar conversion was reported by the provider response.",
         extractionMode: spatialMode,
-        spatialMethod:
-          spatialMode === "district"
-            ? usedNearestCellFallback
-              ? "The district was smaller than a native 0.25° cell; the nearest NASA grid cell to the polygon centre was used and explicitly flagged."
-              : "Daily mean of NASA 0.25° grid-cell centres inside the verified district polygon, weighted by cell-area latitude."
-            : "NASA NCSS grid-as-point extraction at the requested coordinate; the returned containing grid cell is recorded.",
+        spatialMethod: spatialMode === "district"
+          ? cmip6DistrictMethod(gridSelection)
+          : "Native NASA grid-cell value at the requested coordinate. The returned cell is recorded.",
+        gridSelection,
         requestedStart: `${startYear}-01-01`,
         requestedEnd: `${endYear}-12-31`,
         returnedStart: records[0].date,
         returnedEnd: records.at(-1)!.date,
         acceptedRecords: records.length,
         extractedGridCells: maximumGridCells,
-        nearestCellFallback: usedNearestCellFallback,
+        nearestCellFallback: gridSelection === "nearest",
         requestedLatitude:
           spatialMode === "point" ? coordinateLat : undefined,
         requestedLongitude:
@@ -4679,21 +4719,19 @@ export default function App() {
         0,
       );
     } catch (error) {
-      setCmipRaw([]);
-      setCmipLoadedKey("");
-      setCmipMetadata(null);
       setCmipProgress(0);
-      setShowCmipPrecipitationPlot(false);
       setCmipDataMessage(
-        error instanceof Error
-          ? error.message
-          : "Direct NASA CMIP6 precipitation retrieval failed.",
+        controller.signal.aborted
+          ? "Retrieval cancelled. Completed annual subsets can be reused on the next attempt."
+          : error instanceof Error ? error.message : "NASA CMIP6 precipitation retrieval failed.",
       );
     } finally {
+      cmipRetrieval.current = null;
       setCmipBusy(false);
     }
   }
   async function retrieveHistoricalCmipForBiasCorrection() {
+    if (cmipRetrieval.current) return;
     if (cmipSelectionMode !== "individual") {
       setCmipHistoricalMessage("Select an individual GCM before retrieving its matching historical series.");
       return;
@@ -4720,11 +4758,11 @@ export default function App() {
       setCmipHistoricalMessage("Observed gauge only is selected, but fewer than 20 complete gauge years overlap 1985–2014. Upload an adequate gauge series or choose Automatic / ERA5 reanalysis.");
       return;
     }
+    const controller = new AbortController();
+    cmipRetrieval.current = controller;
+    const options = {signal: controller.signal, onArchiveProgress: setCmipHistoricalMessage};
     setCmipBusy(true);
-    setCmipHistoricalRaw([]);
-    if (shouldUseEra5) setCmipEra5ReferenceRaw([]);
-    setCmipHistoricalLoadedKey("");
-    setCmipBiasAudit(null);
+    setCmipProgress(0);
     setCmipHistoricalMessage(`Retrieving ${shouldUseEra5 ? "ERA5 reference and " : ""}${selectedCmipModel} historical 1985–2014 for ${spatialMode === "district" ? `${district} district polygon` : "the project grid cell"}…`);
     try {
       let referenceCount = observedAms.length;
@@ -4745,7 +4783,11 @@ export default function App() {
         };
         let era5 = await extractEra5InBrowser(
           era5Request,
-          value => setCmipHistoricalMessage(`Retrieving ERA5 bias-correction reference… ${value}%`),
+          value => {
+            setCmipHistoricalMessage(`Retrieving ERA5 bias-correction reference… ${value}%`);
+            setCmipProgress(Math.round(0.2 * value));
+          },
+          controller.signal,
         );
         let era5Records = era5.status === "complete" && era5.metadata.temporalResolution === "daily"
           ? (era5.records ?? [])
@@ -4758,6 +4800,7 @@ export default function App() {
           era5 = await extractEra5InBrowser(
             { ...era5Request, bypassCache: true },
             value => setCmipHistoricalMessage(`Refreshing ERA5 bias-correction reference… ${value}%`),
+            controller.signal,
           );
           era5Records = era5.status === "complete" && era5.metadata.temporalResolution === "daily"
             ? (era5.records ?? [])
@@ -4781,16 +4824,16 @@ export default function App() {
         }
         referenceRecords = era5Records;
         referenceMetadata = era5.status === "complete" ? era5.metadata : null;
-        setCmipEra5ReferenceRaw(era5Records);
         referenceCount = era5Qc.eligibleYears;
       }
       const catalogue = await postCmip6<Cmip6Catalogue>({
         action: "catalogue", model: selectedCmipModel, scenario: "historical",
         member: cmipMember, startYear: 1985, endYear: 2014, ...spatialRequest,
-      });
+      }, options);
       if (cmipMetadata && cmipDataReady && catalogue.selectedMember !== cmipMetadata.member) throw new Error("Historical and future GCM realizations differ; retrieve matching model members before correction.");
       const groups: DailyRecord[][] = [];
       let historicalGridCells = 0;
+      let historicalGridSelection: Cmip6GridSelection | undefined;
       const historicalServices = new Set<string>();
       const batchSize = spatialMode === "district" ? 2 : 5;
       for (let offset = 0; offset < catalogue.files.length; offset += batchSize) {
@@ -4798,15 +4841,22 @@ export default function App() {
         const responses = await loadCmip6Batch(batch.map(file => postCmip6<Cmip6AnnualResponse>({
           action: "year", model: selectedCmipModel, scenario: "historical", member: catalogue.selectedMember,
           year: file.year, fileName: file.fileName, ...spatialRequest,
-        })));
+        }, options)));
         for (const response of responses) {
           historicalServices.add(response.retrievalService ?? CMIP6_NCSS_SERVICE);
           if (spatialMode === "district" && response.nearestCellFallback) throw new Error("The historical subset fell back to a single nearest grid cell. It cannot be used as a district spatial bias-correction series.");
+          if (historicalGridSelection && response.gridSelection && historicalGridSelection !== response.gridSelection) {
+            throw new Error("The historical NASA annual files use different spatial selection rules for the active location.");
+          }
+          historicalGridSelection ??= response.gridSelection;
           historicalGridCells = Math.max(historicalGridCells, response.extractedGridCells);
           groups.push(response.records);
         }
-        setCmipHistoricalMessage(`Historical validation: retrieved ${Math.min(offset + batch.length, 30)} of 30 years…`);
+        const completed = Math.min(offset + batch.length, catalogue.files.length);
+        setCmipProgress(Math.round(20 + 80 * completed / catalogue.files.length));
+        setCmipHistoricalMessage(`Retrieved ${completed} of ${catalogue.files.length} historical GCM years…`);
       }
+      controller.signal.throwIfAborted();
       const records = mergeDailyRecords(groups);
       const matched = matchCmipHistoricalBaseline(records, referenceRecords);
       if (matched.years.length < 20) throw new Error(`Only ${matched.years.length} common eligible baseline years remain after matching the historical GCM and reference. At least 20 common years within 1985–2014 are required.`);
@@ -4818,20 +4868,27 @@ export default function App() {
         boundaryVersion:spatialMode === "district" ? matchedBoundaryIdentity?.version : undefined,
         member:catalogue.selectedMember,historicalGridCells,
         historicalRetrievalService:[...historicalServices].join(" + "),
-        historicalSpatialMethod:spatialMode === "district" ? "District daily spatial mean over selected polygon using the same NASA cell-selection and latitude-area weighting rule as the future series" : "NASA NCSS grid-as-point extraction",
+        historicalGridSelection,
+        historicalSpatialMethod: spatialMode === "district"
+          ? cmip6DistrictMethod(historicalGridSelection)
+          : "Native NASA grid-cell extraction at the requested point.",
         referenceSpatialMethod:referenceMetadata?.spatialMethod ?? "Uploaded point gauge",
         referenceGridCells:referenceMetadata?.extractedGridCells,
         baseline:"1985–2014",commonEligibleYears:matched.years,
         correctionOrder:spatialMode === "district" ? "Aggregate historical/future GCM and ERA5 separately over the same district polygon, then apply monthly QDM to the district daily series. Not cell-wise bias correction." : "Monthly QDM of point/grid-cell daily series",
       };
+      setCmipEra5ReferenceRaw(shouldUseEra5 ? referenceRecords : []);
       setCmipBiasAudit(audit);
       setCmipHistoricalRaw(records);
       setCmipMember(catalogue.selectedMember);
       setCmipHistoricalLoadedKey(cmipHistoricalKeyForMember(catalogue.selectedMember));
       setCmipHistoricalMessage(`Historical comparison ready for ${spatialMode === "district" ? `${district} district spatial series` : "the project grid cell"}: ${matched.years.length} common eligible years; ${referenceCount} reference annual maxima. ${audit.correctionOrder} Correction is applied when a matching future series is available. ${shouldUseEra5 ? "This is reanalysis-corrected, not gauge-corrected." : ""}`);
     } catch (error) {
-      setCmipHistoricalMessage(error instanceof Error ? error.message : "Historical GCM retrieval failed.");
+      setCmipHistoricalMessage(controller.signal.aborted
+        ? "Baseline retrieval cancelled. Completed annual subsets can be reused on the next attempt."
+        : error instanceof Error ? error.message : "Historical GCM retrieval failed.");
     } finally {
+      cmipRetrieval.current = null;
       setCmipBusy(false);
     }
   }
@@ -7491,6 +7548,7 @@ export default function App() {
                 <span>Official projection data access</span>
                 <strong>{SOURCE_META.cmip6.accessLabel}</strong>
                 <small>{SOURCE_META.cmip6.accessMode}</small>
+                <small>During a subset service outage, the Atlas can read the matching annual NASA files in your browser. The first run may take longer. Later runs can reuse the saved regional subsets.</small>
               </div>
               <div className="source-download-actions">
                 <button
@@ -7681,9 +7739,12 @@ export default function App() {
                 </span>
               </div>
               {cmipBusy && (
-                <progress max="100" value={cmipProgress}>
-                  {cmipProgress}%
-                </progress>
+                <>
+                  <progress max="100" value={cmipProgress}>{cmipProgress}%</progress>
+                  <div className="gcm-validation-actions">
+                    <button type="button" onClick={() => cmipRetrieval.current?.abort()}>Cancel retrieval</button>
+                  </div>
+                </>
               )}
               {cmipDataReady && cmipMetadata && (
                 <dl>

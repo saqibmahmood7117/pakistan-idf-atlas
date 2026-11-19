@@ -1,5 +1,6 @@
 import { annualMaxima, type DailyRecord } from "./observed-idf.ts";
 import type { OnlineGeometry } from "./online-precipitation.ts";
+import type { Cmip6GridSelection } from "./cmip6-online.ts";
 
 /** Includes polygon content, not just the displayed district name. */
 export function cmipBiasSpatialKey(input: {
@@ -42,6 +43,7 @@ export type CmipBiasSpatialAudit = {
   boundaryVersion?: string;
   member: string;
   historicalGridCells: number;
+  historicalGridSelection?: Cmip6GridSelection;
   historicalRetrievalService?: string;
   historicalSpatialMethod: string;
   referenceSpatialMethod: string;

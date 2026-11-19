@@ -28,13 +28,14 @@ substituted for this native time series. Missing dates are not filled.
   are clipped to the selected polygon for display; IFS displays locations only,
   because its exact native footprint is not returned. This is representative
   sampling, not a complete raster or interpolated rainfall field.
-- CMIP6: the existing validated model/scenario/member/file route accepts a
-  `spatialDate` within the selected year and asks NASA NCSS for that day's native
-  grid. Parsing applies the same mask, missing/scale/offset/unit rules and
-  latitude weights as the district extractor. Only accepted valid cells from the
-  requested native date are returned. Footprints use returned coordinate spacing;
-  display clipping does not change values. Calendar gaps produce no spatial
-  values, rather than synthetic rainfall. Nearest-cell fallback remains flagged.
+- CMIP6: the validated model/scenario/member/file route accepts a
+  `spatialDate` within the selected year. It uses the live NASA subset or the
+  regional grid read from the matching NASA Open Data file. Both paths apply
+  the same cell selection, unit conversion and calendar rules as the district
+  extractor. Centre-free districts use area weights for intersecting footprints.
+  The map displays valid values on the requested native date and clips footprints
+  to the district for display. Calendar gaps and any representative nearest-cell
+  extraction are disclosed.
 - Other providers: the district-series value is shown; unavailable cell fields
   are not reconstructed from an aggregate.
 
