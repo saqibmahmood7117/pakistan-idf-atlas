@@ -453,9 +453,14 @@ test("CMIP6 workspace directly retrieves, fits and plots actual GCM precipitatio
     new URL("../app/page.tsx", import.meta.url),
     "utf8",
   );
+  const retrieval = await readFile(
+    new URL("../lib/cmip6-online.ts", import.meta.url),
+    "utf8",
+  );
   assert.match(source, /Retrieve GCM data & develop IDF/);
   assert.match(source, /\/api\/cmip6-precipitation/);
-  assert.match(source, /NCCS THREDDS NetCDF Subset Service/);
+  assert.match(source, /CMIP6_NCSS_SERVICE/);
+  assert.match(retrieval, /NCCS THREDDS NetCDF Subset Service/);
   assert.match(source, /kg m⁻² s⁻¹ to mm\/day/);
   assert.match(source, /Download retrieved GCM data/);
   assert.match(source, /Upload GCM data instead/);
@@ -484,7 +489,7 @@ test("CMIP6 district retrieval uses supported NetCDF grid subsets and resumable 
   assert.match(route, /parseCmip6NcssNetcdf/);
   assert.match(route, /body\.mode === "point"/);
   assert.match(source, /cmip6AnnualResponseCache/);
-  assert.match(source, /completed annual subsets remain cached/);
+  assert.match(source, /reuse completed annual subsets in this tab/);
 });
 
 test("GCM plot can isolate one maximum daily precipitation value per year", () => {
